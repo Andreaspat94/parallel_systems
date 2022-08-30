@@ -134,7 +134,7 @@ int main(int argc, char **argv)
     int maxXCount = n+2;
 	int maxYCount = m+2; 
     double *src   = u_old;
-    double * dst  = u;
+    double *dst  = u;
     double omega  = relax;
     alpha         = alpha;
     
@@ -165,17 +165,30 @@ int main(int argc, char **argv)
 
     for (y = 1; y < (maxYCount-1); y++)
     {
-        fY = yStart + (y-1)*deltaY;
+
         for (x = 1; x < (maxXCount-1); x++)
         {
-            fX = xStart + (x-1)*deltaX;
-            f = -alpha*(1.0-fX*fX)*(1.0-fY*fY) - 2.0*(1.0-fX*fX) - 2.0*(1.0-fY*fY);
-            updateVal = (	(SRC(x-1,y) + SRC(x+1,y))*cx +
-                			(SRC(x,y-1) + SRC(x,y+1))*cy +
-                			SRC(x,y)*cc - f
-						)/cc;
+            /***
+             * Step A.2.b from 'instructions for effective MPI'
+             * Remove variable assignments (fX, fY). Replace fx, fy in f with their values.
+             * Did the same below with 'updateVal'.
+             */
+
+            f = -alpha*(1.0-(xStart + (x-1)*deltaX)*(xStart + (x-1)*deltaX))
+                      *(1.0-(yStart + (y-1)*deltaY)*(yStart + (y-1)*deltaY))
+                      - 2.0*(1.0-(xStart + (x-1)*deltaX)*(xStart + (x-1)*deltaX))
+                      - 2.0*(1.0-(yStart + (y-1)*deltaY)*(yStart + (y-1)*deltaY));
+
             DST(x,y) = SRC(x,y) - omega*updateVal;
-            error += updateVal*updateVal;
+            error += ((SRC(x-1,y) + SRC(x+1,y))*cx +
+                          (SRC(x,y-1) + SRC(x,y+1))*cy +
+                          SRC(x,y)*cc - f
+                     )/cc
+                             *
+                    ((SRC(x-1,y) + SRC(x+1,y))*cx +
+                         (SRC(x,y-1) + SRC(x,y+1))*cy +
+                         SRC(x,y)*cc - f
+                    )/cc;
         }
     }
     error= sqrt(error)/((maxXCount-2)*(maxYCount-2));
@@ -191,8 +204,8 @@ int main(int argc, char **argv)
     t2 = MPI_Wtime();
     printf( "Iterations=%3d Elapsed MPI Wall time is %f\n", iterationCount, t2 - t1 ); 
     MPI_Finalize();
-    
-    
+
+
     diff = clock() - start;
     int msec = diff * 1000 / CLOCKS_PER_SEC;
     printf("Time taken %d seconds %d milliseconds\n", msec/1000, msec%1000);
