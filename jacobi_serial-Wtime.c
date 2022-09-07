@@ -83,8 +83,8 @@ double checkSolution(double xStart, double yStart,
 
 int main(int argc, char **argv)
 {
-    int n, m, mits;
-    double alpha, tol, relax;
+    int n = 840, m = 840 , mits = 50;
+    double alpha = 0.8, tol = 1e-13, relax = 1.0;
     double maxAcceptableError;
     double error;
     double *u, *u_old, *tmp;
@@ -93,18 +93,18 @@ int main(int argc, char **argv)
     double t1, t2;
 
 //    printf("Input n,m - grid dimension in x,y direction:\n");
-    scanf("%d,%d", &n, &m);
+//    scanf("%d,%d", &n, &m);
 //    printf("Input alpha - Helmholtz constant:\n");
-    scanf("%lf", &alpha);
+//    scanf("%lf", &alpha);
 //    printf("Input relax - successive over-relaxation parameter:\n");
-    scanf("%lf", &relax);
-//    printf("Input tol - error tolerance for the iterrative solver:\n");
-    scanf("%lf", &tol);
+//    scanf("%lf", &relax);
+//    printf("Input tol - error tolerance for the iterative solver:\n");
+//    scanf("%lf", &tol);
 //    printf("Input mits - maximum solver iterations:\n");
-    scanf("%d", &mits);
+//    scanf("%d", &mits);
 
 
-    printf("-> %d, %d, %g, %g, %g, %d\n", n, m, alpha, relax, tol, mits);
+//    printf("-> %d, %d, %g, %g, %g, %d\n", n, m, alpha, relax, tol, mits);
 
     allocCount = (n+2)*(m+2);
     // Those two calls also zero the boundary elements
@@ -145,6 +145,19 @@ int main(int argc, char **argv)
     MPI_Init(NULL,NULL);
     t1 = MPI_Wtime();
 
+    // Get the number of processes
+    int world_size;
+    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+
+    //Get the rank of the process
+    int world_rank;
+    MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+
+    char processor_name[MPI_MAX_PROCESSOR_NAME];
+    int name_len;
+    MPI_Get_processor_name(processor_name, &name_len);
+
+    printf(".Hello world from processor %s, rank %d out of %d processors\n", processor_name, world_rank, world_size);
     /* Iterate as long as it takes to meet the convergence criterion */
     while (iterationCount < maxIterationCount && error > maxAcceptableError)
     {    	
