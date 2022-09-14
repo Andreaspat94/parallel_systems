@@ -86,7 +86,7 @@ int main(int argc, char **argv)
     /** VALUES ARE ASSIGNED MANUALLY FOR TESTING REASONS.
     * THIS IS TEMPORARY!
     */
-    int n = 840, m = 840 , mits = 50;
+    int n = 12, m = 12 , mits = 50;
     double alpha = 0.8, tol = 1e-13, relax = 1.0;
     double maxAcceptableError;
     /** DONT FORGET THIS */
@@ -112,7 +112,7 @@ int main(int argc, char **argv)
 
     allocCount = (n+2)*(m+2);
     // Those two calls also zero the boundary elements
-    u = 	(double*)calloc(allocCount, sizeof(double)); //reverse order
+    u = 	(double*)calloc(allocCount, sizeof(double)); // reverse order
     u_old = (double*)calloc(allocCount, sizeof(double));
 
 //    printf("allocCount=%d u=%p u_old=%p\n", allocCount, u, u_old);
@@ -145,7 +145,7 @@ int main(int argc, char **argv)
     iterationCount = 0;
     clock_t start = clock(), diff;
 
-    // Variable declarations moved outside the loop
+
     //macros are defined to translate the 2-D index (XX, YY) to the 1-dimensional array:
 #define SRC(XX,YY) src[(YY)*maxXCount+(XX)]
 #define DST(XX,YY) dst[(YY)*maxXCount+(XX)]
@@ -171,15 +171,17 @@ int main(int argc, char **argv)
     char processor_name[MPI_MAX_PROCESSOR_NAME];
 
     //The array containing the number of processes to assign to each dimension.
-    int dims[2] = {0,0};
+    int dims[2] = {0, 0};
     //logical array of size ndims specifying whether the grid is periodic ( true) or not ( false) in each dimension
-    int period[] = {0,0};
+    int periods[2] = {0,0};
     // ranking may be reordered (true) or not (false)
     int reorder = 1;
     int coords[2];
+    int west, east, south, north;
 
     /** MPI INIT */
     MPI_Init(NULL,NULL);
+    MPI_Barrier(MPI_COMM_WORLD);
     t1 = MPI_Wtime();
 
     // Get the number of processes
@@ -187,29 +189,69 @@ int main(int argc, char **argv)
     // Get the rank of process
     MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
 
-    //This routine decomposes a given number of processes
-    //over a cartesian grid made of the number of dimensions specified.
+    if (world_rank == 0) {
+        printf("RANKS: %d\n", world_size);
+    }
+
+    //This routine decomposes a given number of processes over a cartesian grid made of the number of dimensions specified.
     MPI_Dims_create(world_size, 2, dims);
 
-    MPI_Get_processor_name(processor_name, &name_len);
-    printf("Hello from processor %s, rank %d out of %d processors\n",
-           processor_name, world_rank, world_size);
-
-    MPI_Cart_create(MPI_COMM_WORLD, 2, dims, period, reorder, &comm);
+    //Cartesian constructor
+    MPI_Cart_create(MPI_COMM_WORLD, 2, dims, periods, reorder, &comm);
 
     MPI_Comm_size(comm, &size);
     MPI_Comm_rank(comm, &rank);
 
     //Get my coordinated in the new communicator
     MPI_Cart_coords(comm, rank, 2, coords);
-    printf("[MPI process %d] I am located at (%d, %d).\n", rank, coords[0],coords[1]);
+    printf("[MPI process %d] I am located at (%d, %d).\n", rank, coords[0], coords[1]);
+
+    // direction = 0 or 1 corresponding to the two dimensions x,y
+    MPI_Cart_shift(comm, 0, 1, &west, &east);
+    MPI_Cart_shift(comm, 1, 1, &south, &north);
+    printf("\t-Neighbors for rank %d -- west: %d, east: %d, south: %d, north: %d\n", rank, west, east, south, north);
+
+    // broadcast input to all processes
+    if (rank == 0) {
+        MPI_Bcast(&n, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        MPI_Bcast(&m, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        MPI_Bcast(&alpha, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+        MPI_Bcast(&relax, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+        MPI_Bcast(&tol, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+        MPI_Bcast(&mits, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    }
+    //block size
+    x = n / sqrt(world_size);
+    y = m / sqrt(world_size);
+
+    // Datatype creation for halo points
+    MPI_Datatype row;
+    MPI_Type_contiguous(x, MPI_DOUBLE,&row);
+    MPI_Type_commit(&row);
+
+    MPI_Datatype column;
+    MPI_Type_vector(y, 1, maxXCount, MPI_DOUBLE, &column);
+    MPI_Type_commit(&column);
+
+    MPI_Request req_west, req_east, req_south, req_north, send_west, send_east, send_south, send_north;
 
     /* Iterate as long as it takes to meet the convergence criterion */
     while (iterationCount < maxIterationCount && error > maxAcceptableError)
     {
-        //printf("Iteration %i\n", iterationCount);
+        //TODO: not sure about SRC(XX,YY).
+        MPI_Irecv(&SRC(0, maxYCount-1), 1, row, north, MPI_ANY_TAG, comm,&req_north);
+        SRC(0, maxYCount-1) = 606;
+        MPI_Irecv(&SRC(0, -1), 1, row, south, MPI_ANY_TAG, comm, &req_south);
+        MPI_Irecv(&SRC(maxXCount-1, 0), 1, column, east, MPI_ANY_TAG, comm, &req_east);
+        MPI_Irecv(&SRC(-1, 0), 1, column, MPI_ANY_SOURCE, MPI_ANY_TAG, comm, &req_west);
+
+        MPI_Isend(&SRC(0,0), 1, row, south, 1, comm, &send_south);
+        MPI_Isend(&SRC(0,maxYCount-2), 1, row, north, 1, comm, &send_north);
+        MPI_Isend(&SRC(0,0), 1, column, west, 1, comm, &send_west);
+        MPI_Isend(&SRC(maxXCount-2,0), 1, column, east, 1, comm, &send_east);
+
+//        printf("\t[MPI process %d send to west(%d) %f\n", rank, west, SRC(0, maxYCount-1));
         error = 0.0;
-        // Start of iterations
         for (y = 1; y < (maxYCount-1); y++)
         {
             for (x = 1; x < (maxXCount-1); x++)
@@ -225,6 +267,11 @@ int main(int argc, char **argv)
         }
         error= sqrt(error)/((maxXCount-2)*(maxYCount-2));
 
+        MPI_Wait(&req_west, MPI_STATUS_IGNORE);
+        MPI_Wait(&req_east, MPI_STATUS_IGNORE);
+        MPI_Wait(&req_south, MPI_STATUS_IGNORE);
+        MPI_Wait(&req_north, MPI_STATUS_IGNORE);
+
 //        printf("\tError %g\n", error);
         iterationCount++;
         // Swap the buffers
@@ -234,13 +281,15 @@ int main(int argc, char **argv)
     }
 
     t2 = MPI_Wtime();
-    printf( "Rank %d: Iterations=%3d Elapsed MPI Wall time is %f\n", rank, iterationCount, t2 - t1 );
+    //TODO uncomment it
+    //printf( "Rank %d: Iterations=%3d Elapsed MPI Wall time is %f\n", rank, iterationCount, t2 - t1 );
     MPI_Finalize();
 
 
     diff = clock() - start;
     int msec = diff * 1000 / CLOCKS_PER_SEC;
-    printf("Rank %d: Time taken %d seconds %d milliseconds\n", rank, msec/1000, msec%1000);
+    //TODO uncomment it
+    //printf("Rank %d: Time taken %d seconds %d milliseconds\n", rank, msec/1000, msec%1000);
 
     // u_old holds the solution after the most recent buffers swap
     double absoluteError = checkSolution(xLeft, yBottom,
