@@ -91,6 +91,7 @@ int main(int argc, char **argv)
     double maxAcceptableError;
     /** DONT FORGET THIS */
     double error = HUGE_VAL;
+    double totalError = HUGE_VAL;
     double *u, *u_old, *tmp;
     int allocCount;
     int iterationCount, maxIterationCount;
@@ -233,28 +234,38 @@ int main(int argc, char **argv)
     MPI_Type_vector(y, 1, maxXCount, MPI_DOUBLE, &column);
     MPI_Type_commit(&column);
 
-    MPI_Request req_west, req_east, req_south, req_north, send_west, send_east, send_south, send_north;
+    MPI_Request RRequests[4], SRequests[4];
 
+    MPI_Status SStatuses[4], RStatuses[4];
     /* Iterate as long as it takes to meet the convergence criterion */
     while (iterationCount < maxIterationCount && error > maxAcceptableError)
     {
-        //TODO: not sure about SRC(XX,YY).
-        MPI_Irecv(&SRC(0, maxYCount-1), 1, row, north, MPI_ANY_TAG, comm,&req_north);
-        SRC(0, maxYCount-1) = 606;
-        MPI_Irecv(&SRC(0, -1), 1, row, south, MPI_ANY_TAG, comm, &req_south);
-        MPI_Irecv(&SRC(maxXCount-1, 0), 1, column, east, MPI_ANY_TAG, comm, &req_east);
-        MPI_Irecv(&SRC(-1, 0), 1, column, MPI_ANY_SOURCE, MPI_ANY_TAG, comm, &req_west);
+      /** NOTE: u(0,*), u(maxXCount-1,*), u(*,0) and u(*,maxYCount-1)
+       *  are BOUNDARIES and therefore not part of the solution. Take a look at this:
+       *  http://etutorials.org/Linux+systems/cluster+computing+with+linux/Part+II+Parallel+Programming/Chapter+9+Advanced+Topics+in+MPI+Programming/9.3+Revisiting+Mesh+Exchanges/
+       */
 
-        MPI_Isend(&SRC(0,0), 1, row, south, 1, comm, &send_south);
-        MPI_Isend(&SRC(0,maxYCount-2), 1, row, north, 1, comm, &send_north);
-        MPI_Isend(&SRC(0,0), 1, column, west, 1, comm, &send_west);
-        MPI_Isend(&SRC(maxXCount-2,0), 1, column, east, 1, comm, &send_east);
+        /** receive first line and column (green points) from neighbours.*/
 
-//        printf("\t[MPI process %d send to west(%d) %f\n", rank, west, SRC(0, maxYCount-1));
+        MPI_Irecv(&SRC(1, maxYCount-1), 1, row, north, 0, comm,&RRequests[0]);
+        MPI_Irecv(&SRC(1, 0), 1, row, south, 0, comm, &RRequests[1]);
+        MPI_Irecv(&SRC(maxXCount-1, 1), 1, column, east, 0, comm, &RRequests[2]);
+        MPI_Irecv(&SRC(0, 1), 1, column, west, 0, comm, &RRequests[3]);
+
+        /** send first line and column (green points) to neighbours.*/
+        MPI_Isend(&SRC(1,1), 1, row, south, 1, comm, &SRequests[0]);
+        MPI_Isend(&SRC(1,maxYCount-2), 1, row, north, 1, comm, &SRequests[1]);
+        MPI_Isend(&SRC(0,1), 1, column, west, 1, comm, &SRequests[2]);
+        MPI_Isend(&SRC(maxXCount-2,1), 1, column, east, 1, comm, &SRequests[3]);
+
+//      printf("\t[MPI process %d send to west(%d) %f\n", rank, west, SRC(0, maxYCount-1));
         error = 0.0;
-        for (y = 1; y < (maxYCount-1); y++)
+        /** This double for loop is for white points calculations
+         * Changed x and y initiate values (from 1 to 2) for white point calculations
+         */
+        for (y = 2; y < (maxYCount-1); y++)
         {
-            for (x = 1; x < (maxXCount-1); x++)
+            for (x = 2; x < (maxXCount-1); x++)
             {
                 updateVal = (	(SRC(x-1,y) + SRC(x+1,y))*cx +
                                  (SRC(x,y-1) + SRC(x,y+1))*cy +
@@ -265,31 +276,86 @@ int main(int argc, char **argv)
                 error += updateVal*updateVal;
             }
         }
-        error= sqrt(error)/((maxXCount-2)*(maxYCount-2));
+        error = sqrt(error)/((maxXCount-2)*(maxYCount-2));
 
-        MPI_Wait(&req_west, MPI_STATUS_IGNORE);
-        MPI_Wait(&req_east, MPI_STATUS_IGNORE);
-        MPI_Wait(&req_south, MPI_STATUS_IGNORE);
-        MPI_Wait(&req_north, MPI_STATUS_IGNORE);
+        MPI_Waitall(4, RRequests, RStatuses);
 
-//        printf("\tError %g\n", error);
+        /**
+         * Boarder-halo points are received.
+         * Calculations for green points are now made.
+         * */
+
+        //south
+        y = 1;
+        for (x = 1; x < maxXCount-1; x++)
+        {
+            updateVal = (	(SRC(x-1,y) + SRC(x+1,y))*cx +
+                             (SRC(x,y-1) + SRC(x,y+1))*cy +
+                             SRC(x,y)*cc
+                             -(-alpha*(1.0-fX[x]*fX[x])*(1.0-fY[y]*fY[y]) - 2.0*(1.0-fX[x]*fX[x]) - 2.0*(1.0-fY[y]*fY[y])))
+                        /cc;
+            DST(x,y) = SRC(x,y) - omega*updateVal;
+            error += updateVal*updateVal;
+        }
+
+        //north
+        y = maxYCount - 2;
+        for (x = 1; x < maxXCount-1; x++)
+        {
+            updateVal = (	(SRC(x-1,y) + SRC(x+1,y))*cx +
+                             (SRC(x,y-1) + SRC(x,y+1))*cy +
+                             SRC(x,y)*cc
+                             -(-alpha*(1.0-fX[x]*fX[x])*(1.0-fY[y]*fY[y]) - 2.0*(1.0-fX[x]*fX[x]) - 2.0*(1.0-fY[y]*fY[y])))
+                        /cc;
+            DST(x,y) = SRC(x,y) - omega*updateVal;
+            error += updateVal*updateVal;
+        }
+
+        //west
+        x = 1;
+        for (y = 1; y < maxYCount-1; y++)
+        {
+            updateVal = (	(SRC(x-1,y) + SRC(x+1,y))*cx +
+                             (SRC(x,y-1) + SRC(x,y+1))*cy +
+                             SRC(x,y)*cc
+                             -(-alpha*(1.0-fX[x]*fX[x])*(1.0-fY[y]*fY[y]) - 2.0*(1.0-fX[x]*fX[x]) - 2.0*(1.0-fY[y]*fY[y])))
+                        /cc;
+            DST(x,y) = SRC(x,y) - omega*updateVal;
+            error += updateVal*updateVal;
+        }
+
+        //east
+        x = maxXCount - 2;
+        for (y = 1; y < maxYCount-1; y++)
+        {
+            updateVal = (	(SRC(x-1,y) + SRC(x+1,y))*cx +
+                             (SRC(x,y-1) + SRC(x,y+1))*cy +
+                             SRC(x,y)*cc
+                             -(-alpha*(1.0-fX[x]*fX[x])*(1.0-fY[y]*fY[y]) - 2.0*(1.0-fX[x]*fX[x]) - 2.0*(1.0-fY[y]*fY[y])))
+                        /cc;
+            DST(x,y) = SRC(x,y) - omega*updateVal;
+            error += updateVal*updateVal;
+        }
+
+        //printf("\tError %g\n", error);
         iterationCount++;
         // Swap the buffers
         tmp = u_old;
         u_old = u;
         u = tmp;
+
+        MPI_Reduce(&error, &totalError, 1, MPI_DOUBLE, MPI_SUM, 0, comm);
+        MPI_Waitall(4, SRequests, SStatuses);
     }
 
     t2 = MPI_Wtime();
-    //TODO uncomment it
-    //printf( "Rank %d: Iterations=%3d Elapsed MPI Wall time is %f\n", rank, iterationCount, t2 - t1 );
+    printf( "Rank %d: Iterations=%3d Elapsed MPI Wall time is %f\n", rank, iterationCount, t2 - t1 );
     MPI_Finalize();
 
 
     diff = clock() - start;
     int msec = diff * 1000 / CLOCKS_PER_SEC;
-    //TODO uncomment it
-    //printf("Rank %d: Time taken %d seconds %d milliseconds\n", rank, msec/1000, msec%1000);
+    printf("Rank %d: Time taken %d seconds %d milliseconds\n", rank, msec/1000, msec%1000);
 
     // u_old holds the solution after the most recent buffers swap
     double absoluteError = checkSolution(xLeft, yBottom,
@@ -298,7 +364,7 @@ int main(int argc, char **argv)
                                          deltaX, deltaY,
                                          alpha);
     if (rank == 0) {
-        printf("Residual %g\n", error);
+        printf("Residual %g\n", totalError);
         printf("The error of the iterative solution is %g\n", absoluteError);
     }
 
