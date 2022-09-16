@@ -86,7 +86,7 @@ int main(int argc, char **argv)
     /** VALUES ARE ASSIGNED MANUALLY FOR TESTING REASONS.
     * THIS IS TEMPORARY!
     */
-    int n = 12, m = 12 , mits = 50;
+    int n = 840, m = 840 , mits = 50;
     double alpha = 0.8, tol = 1e-13, relax = 1.0;
     double maxAcceptableError;
     /** DONT FORGET THIS */
@@ -190,9 +190,9 @@ int main(int argc, char **argv)
     // Get the rank of process
     MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
 
-    if (world_rank == 0) {
-        printf("RANKS: %d\n", world_size);
-    }
+//    if (world_rank == 0) {
+//        printf("RANKS: %d\n", world_size);
+//    }
 
     //This routine decomposes a given number of processes over a cartesian grid made of the number of dimensions specified.
     MPI_Dims_create(world_size, 2, dims);
@@ -205,22 +205,21 @@ int main(int argc, char **argv)
 
     //Get my coordinated in the new communicator
     MPI_Cart_coords(comm, rank, 2, coords);
-    printf("[MPI process %d] I am located at (%d, %d).\n", rank, coords[0], coords[1]);
+//    printf("[MPI process %d] I am located at (%d, %d).\n", rank, coords[0], coords[1]);
 
     // direction = 0 or 1 corresponding to the two dimensions x,y
     MPI_Cart_shift(comm, 0, 1, &west, &east);
     MPI_Cart_shift(comm, 1, 1, &south, &north);
-    printf("\t-Neighbors for rank %d -- west: %d, east: %d, south: %d, north: %d\n", rank, west, east, south, north);
+//    printf("\t-Neighbors for rank %d -- west: %d, east: %d, south: %d, north: %d\n", rank, west, east, south, north);
 
     // broadcast input to all processes
-    if (rank == 0) {
-        MPI_Bcast(&n, 1, MPI_INT, 0, MPI_COMM_WORLD);
-        MPI_Bcast(&m, 1, MPI_INT, 0, MPI_COMM_WORLD);
-        MPI_Bcast(&alpha, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-        MPI_Bcast(&relax, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-        MPI_Bcast(&tol, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-        MPI_Bcast(&mits, 1, MPI_INT, 0, MPI_COMM_WORLD);
-    }
+    MPI_Bcast(&n, 1, MPI_INT, 0, comm);
+    MPI_Bcast(&m, 1, MPI_INT, 0, comm);
+    MPI_Bcast(&alpha, 1, MPI_DOUBLE, 0, comm);
+    MPI_Bcast(&relax, 1, MPI_DOUBLE, 0, comm);
+    MPI_Bcast(&tol, 1, MPI_DOUBLE, 0, comm);
+    MPI_Bcast(&mits, 1, MPI_INT, 0, comm);
+
     //block size
     x = n / sqrt(world_size);
     y = m / sqrt(world_size);
@@ -253,12 +252,11 @@ int main(int argc, char **argv)
         MPI_Irecv(&SRC(0, 1), 1, column, west, 0, comm, &RRequests[3]);
 
         /** send first line and column (green points) to neighbours.*/
-        MPI_Isend(&SRC(1,1), 1, row, south, 1, comm, &SRequests[0]);
-        MPI_Isend(&SRC(1,maxYCount-2), 1, row, north, 1, comm, &SRequests[1]);
-        MPI_Isend(&SRC(0,1), 1, column, west, 1, comm, &SRequests[2]);
-        MPI_Isend(&SRC(maxXCount-2,1), 1, column, east, 1, comm, &SRequests[3]);
+        MPI_Isend(&SRC(1,1), 1, row, south, 0, comm, &SRequests[0]);
+        MPI_Isend(&SRC(1,maxYCount-2), 1, row, north, 0, comm, &SRequests[1]);
+        MPI_Isend(&SRC(0,1), 1, column, west, 0, comm, &SRequests[2]);
+        MPI_Isend(&SRC(maxXCount-2,1), 1, column, east, 0, comm, &SRequests[3]);
 
-//      printf("\t[MPI process %d send to west(%d) %f\n", rank, west, SRC(0, maxYCount-1));
         error = 0.0;
         /** This double for loop is for white points calculations
          * Changed x and y initiate values (from 1 to 2) for white point calculations
@@ -279,7 +277,6 @@ int main(int argc, char **argv)
         error = sqrt(error)/((maxXCount-2)*(maxYCount-2));
 
         MPI_Waitall(4, RRequests, RStatuses);
-
         /**
          * Boarder-halo points are received.
          * Calculations for green points are now made.
@@ -347,6 +344,9 @@ int main(int argc, char **argv)
         MPI_Reduce(&error, &totalError, 1, MPI_DOUBLE, MPI_SUM, 0, comm);
         MPI_Waitall(4, SRequests, SStatuses);
     }
+    /** This is to avoid a WARNING about memory leaks */
+    MPI_Type_free(&column);
+    MPI_Type_free(&row);
 
     t2 = MPI_Wtime();
     printf( "Rank %d: Iterations=%3d Elapsed MPI Wall time is %f\n", rank, iterationCount, t2 - t1 );
