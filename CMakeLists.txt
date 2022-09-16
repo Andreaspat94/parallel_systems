@@ -10,6 +10,6 @@ SET(CMAKE_C_COMPILER  mpicc)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopenmp")
 
 add_executable(parallel_systems
-        jacobi_serial-Wtime.c)
+        jacobi.c)
 
 target_link_libraries(parallel_systems ${MPI_C_LIBRARIES} -O3 -lm)
