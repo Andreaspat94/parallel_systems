@@ -59,6 +59,14 @@ int main(int argc, char **argv)
     double deltaX = (xRight-xLeft)/(n-1);
     double deltaY = (yUp-yBottom)/(m-1);
 
+    precalculations_t precalculations;
+    precalculate(
+        xLeft, yBottom,
+        n+2, m+2,
+        deltaX, deltaY,
+        alpha,
+        &precalculations);
+
     int iterationCount = 0;
     double error = HUGE_VAL;
 
@@ -72,11 +80,10 @@ int main(int argc, char **argv)
         // printf("Iteration %i", iterationCount);
 
         error = one_jacobi_iteration(
-            xLeft, yBottom,
             n+2, m+2,
             u_old, u,
-            deltaX, deltaY,
-            alpha, relax);
+            relax,
+            &precalculations);
 
         // printf("\tError %g\n", error);
 
@@ -105,6 +112,8 @@ int main(int argc, char **argv)
         deltaX, deltaY);
 
     printf("The error of the iterative solution is %g\n", absoluteError);
+
+    // TODO: free "precalculations.f".
 
     return 0;
 }
