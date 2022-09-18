@@ -59,8 +59,7 @@
 double checkSolution(double xStart, double yStart,
                      int maxXCount, int maxYCount,
                      double *u,
-                     double deltaX, double deltaY,
-                     double alpha)
+                     double deltaX, double deltaY)
 {
 #define U(XX,YY) u[(YY)*maxXCount+(XX)]
     int x, y;
@@ -261,9 +260,9 @@ int main(int argc, char **argv)
         /** This double for loop is for white points calculations
          * Changed x and y initiate values (from 1 to 2) for white point calculations
          */
-        for (y = 2; y < (maxYCount-1); y++)
+        for (y = 2; y < (maxYCount-2); y++)
         {
-            for (x = 2; x < (maxXCount-1); x++)
+            for (x = 2; x < (maxXCount-2); x++)
             {
                 updateVal = (	(SRC(x-1,y) + SRC(x+1,y))*cx +
                                  (SRC(x,y-1) + SRC(x,y+1))*cy +
@@ -361,9 +360,9 @@ int main(int argc, char **argv)
     double absoluteError = checkSolution(xLeft, yBottom,
                                          n+2, m+2,
                                          u_old,
-                                         deltaX, deltaY,
-                                         alpha);
+                                         deltaX, deltaY);
     if (rank == 0) {
+        //total error: Propably the less this value is the more accurate our solution is
         printf("Residual %g\n", totalError);
         printf("The error of the iterative solution is %g\n", absoluteError);
     }
