@@ -341,6 +341,9 @@ int main(int argc, char **argv)
         u = tmp;
 
         MPI_Reduce(&error, &totalError, 1, MPI_DOUBLE, MPI_SUM, 0, comm);
+
+        /** ALL REDUCE */
+//        MPI_Allreduce(&error, &totalError, 1, MPI_DOUBLE, MPI_SUM, comm);
         MPI_Waitall(4, SRequests, SStatuses);
     }
     /** This is to avoid a WARNING about memory leaks */
