@@ -85,7 +85,7 @@ int main(int argc, char **argv)
     /** VALUES ARE ASSIGNED MANUALLY FOR TESTING REASONS.
     * THIS IS TEMPORARY!
     */
-    int n = 840, m = 840 , mits = 50;
+    int n = 840, m = 840, mits = 50;
     double alpha = 0.8, tol = 1e-13, relax = 1.0;
     double maxAcceptableError;
     /** DONT FORGET THIS */
@@ -108,7 +108,7 @@ int main(int argc, char **argv)
 //    scanf("%d", &mits);
 
 
-//    printf("-> %d, %d, %g, %g, %g, %d\n", n, m, alpha, relax, tol, mits);
+    //printf("-> %d, %d, %g, %g, %g, %d\n", n, m, alpha, relax, tol, mits);
 
     allocCount = (n+2)*(m+2);
     // Those two calls also zero the boundary elements
@@ -170,13 +170,11 @@ int main(int argc, char **argv)
     int size, rank, world_size, world_rank, name_len;
     char processor_name[MPI_MAX_PROCESSOR_NAME];
 
-    //The array containing the number of processes to assign to each dimension.
-    int dims[2] = {0, 0};
     //logical array of size ndims specifying whether the grid is periodic ( true) or not ( false) in each dimension
     int periods[2] = {0,0};
     // ranking may be reordered (true) or not (false)
     int reorder = 1;
-    int coords[2];
+    int coords[2], dims[2];
     int west, east, south, north;
 
     /** MPI INIT */
@@ -188,6 +186,18 @@ int main(int argc, char **argv)
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
     // Get the rank of process
     MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+
+    //The array containing the number of processes to assign to each dimension.
+    if (size == 80)
+    {
+        dims[0] = 10;
+        dims[1] = 8;
+    }
+    else
+    {
+        dims[0] = 0;
+        dims[1] = 0;
+    }
 
 //    if (world_rank == 0) {
 //        printf("RANKS: %d\n", world_size);
@@ -211,17 +221,27 @@ int main(int argc, char **argv)
     MPI_Cart_shift(comm, 1, 1, &south, &north);
 //    printf("\t-Neighbors for rank %d -- west: %d, east: %d, south: %d, north: %d\n", rank, west, east, south, north);
 
-    // broadcast input to all processes
-    MPI_Bcast(&n, 1, MPI_INT, 0, comm);
-    MPI_Bcast(&m, 1, MPI_INT, 0, comm);
-    MPI_Bcast(&alpha, 1, MPI_DOUBLE, 0, comm);
-    MPI_Bcast(&relax, 1, MPI_DOUBLE, 0, comm);
-    MPI_Bcast(&tol, 1, MPI_DOUBLE, 0, comm);
-    MPI_Bcast(&mits, 1, MPI_INT, 0, comm);
+    //TODO: I believe they are not necessary, cause each rank reads the input
+    // (even though they are declared before MPI_Init)
+    //broadcast input to all processes
+//    MPI_Bcast(&n, 1, MPI_INT, 0, comm);
+//    MPI_Bcast(&m, 1, MPI_INT, 0, comm);
+//    MPI_Bcast(&alpha, 1, MPI_DOUBLE, 0, comm);
+//    MPI_Bcast(&relax, 1, MPI_DOUBLE, 0, comm);
+//    MPI_Bcast(&tol, 1, MPI_DOUBLE, 0, comm);
+//    MPI_Bcast(&mits, 1, MPI_INT, 0, comm);
 
     //block size
-    x = n / sqrt(world_size);
-    y = m / sqrt(world_size);
+    if (size == 80)
+    {
+        x = n/10;
+        y = m/8;
+    }
+    else
+    {
+        x = n / sqrt(world_size);
+        y = m / sqrt(world_size);
+    }
 
     // Datatype creation for halo points
     MPI_Datatype row;

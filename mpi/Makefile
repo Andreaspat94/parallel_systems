@@ -1,7 +1,7 @@
 
 # Example executions:
 # 1) $ make run-release
-#	Will run the release executable with default problem size 840.
+#	Will run the release executable with default problem size 840 and $ of processes 4.
 # 2) $ make run-release size=1680 n=8
 #	Will run the release executable with supported problem size 1680 and # of processes 8.
 
