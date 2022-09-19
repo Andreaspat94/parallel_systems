@@ -174,7 +174,9 @@ int main(int argc, char **argv)
     int periods[2] = {0,0};
     // ranking may be reordered (true) or not (false)
     int reorder = 1;
-    int coords[2], dims[2];
+    int coords[2];
+    //The array containing the number of processes to assign to each dimension.
+    int dims[2] ={0,0};
     int west, east, south, north;
 
     /** MPI INIT */
@@ -186,18 +188,6 @@ int main(int argc, char **argv)
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
     // Get the rank of process
     MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
-
-    //The array containing the number of processes to assign to each dimension.
-    if (size == 80)
-    {
-        dims[0] = 10;
-        dims[1] = 8;
-    }
-    else
-    {
-        dims[0] = 0;
-        dims[1] = 0;
-    }
 
 //    if (world_rank == 0) {
 //        printf("RANKS: %d\n", world_size);
