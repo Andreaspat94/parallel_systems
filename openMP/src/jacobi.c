@@ -37,6 +37,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include <mpi.h>
+#include <omp.h>
 
 /*************************************************************
  * Performs one iteration of the Jacobi method and computes
@@ -56,6 +57,7 @@
 /**********************************************************
  * Checks the error between numerical and exact solutions
  **********************************************************/
+void Hello(void);
 double checkSolution(double xStart, double yStart,
                      int maxXCount, int maxYCount,
                      double *u,
@@ -150,7 +152,6 @@ int main(int argc, char **argv)
 #define SRC(XX,YY) src[(YY)*maxXCount+(XX)]
 #define DST(XX,YY) dst[(YY)*maxXCount+(XX)]
     double updateVal;
-    double f;
     // Coefficients
     double cx = 1.0/(deltaX*deltaX);
     double cy = 1.0/(deltaY*deltaY);
@@ -168,7 +169,6 @@ int main(int argc, char **argv)
 
     MPI_Comm comm;
     int size, rank, world_size, world_rank, name_len;
-    char processor_name[MPI_MAX_PROCESSOR_NAME];
 
     //logical array of size ndims specifying whether the grid is periodic ( true) or not ( false) in each dimension
     int periods[2] = {0,0};
@@ -246,7 +246,13 @@ int main(int argc, char **argv)
         MPI_Irecv(&SRC(maxXCount-1, 1), 1, column, east, 0, comm, &RRequests[2]);
         MPI_Irecv(&SRC(0, 1), 1, column, west, 0, comm, &RRequests[3]);
 
-        /** send first line and column (green points) to neighbours.*/
+        /** send first line and column (green points) to neighbours.
+         *
+         * 'Sender' and 'receiver' parameters are always the same.
+         * Why spending time to find the neighbors?
+         * Persistent communication: MPI_Send_Init
+         * This prepares Send but not executes
+         * It calculates the parameters once (outside the loop)*/
         MPI_Isend(&SRC(1,1), 1, row, south, 0, comm, &SRequests[0]);
         MPI_Isend(&SRC(1,maxYCount-2), 1, row, north, 0, comm, &SRequests[1]);
         MPI_Isend(&SRC(0,1), 1, column, west, 0, comm, &SRequests[2]);
@@ -365,7 +371,17 @@ int main(int argc, char **argv)
         printf("Residual %g\n", totalError);
         printf("The error of the iterative solution is %g\n", absoluteError);
     }
-
+    // TODO: THIS IS TEMPORARY - FOR TEST REASONS
+    int thread_count = 4;
+#   pragma omp parallel num_threads(thread_count)
+    Hello();
 
     return 0;
+
+}
+void Hello(void) {
+    int my_rank = omp_get_thread_num();
+    int thread_count = omp_get_num_threads();
+
+    printf("Hello from thread %d of %d\n", my_rank, thread_count);
 }
