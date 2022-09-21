@@ -86,7 +86,9 @@ int main(int argc, char **argv)
 {
     /** VALUES ARE ASSIGNED MANUALLY FOR TESTING REASONS.
     * THIS IS TEMPORARY!
+     * 840, 1680, 3360, 6720, 13440, 26880
     */
+
     int n = 840, m = 840, mits = 50;
     double alpha = 0.8, tol = 1e-13, relax = 1.0;
     double maxAcceptableError;
@@ -262,10 +264,16 @@ int main(int argc, char **argv)
         /** This double for loop is for white points calculations
          * Changed x and y initiate values (from 1 to 2) for white point calculations
          */
+        //collapse: join two loops into one for better performance
+        //schedule(static): assign a fixed number of iterations to each thread. Between dynamic and static, the latter seemed to work better
+        //reduction(+ : error): By default all variables are shared in all the threads. So I suposse error do not need
+        //a reduction operation, but it seems that it performs way better. The residual error with this parameter is slightly increased
+        #pragma omp parallel for collapse(2) schedule(static) reduction(+ : error) num_threads(2)
         for (y = 2; y < (maxYCount-2); y++)
         {
             for (x = 2; x < (maxXCount-2); x++)
             {
+
                 updateVal = (	(SRC(x-1,y) + SRC(x+1,y))*cx +
                                  (SRC(x,y-1) + SRC(x,y+1))*cy +
                                  SRC(x,y)*cc
@@ -276,7 +284,6 @@ int main(int argc, char **argv)
             }
         }
         error = sqrt(error)/((maxXCount-2)*(maxYCount-2));
-
         MPI_Waitall(4, RRequests, RStatuses);
         /**
          * Boarder-halo points are received.
@@ -371,17 +378,7 @@ int main(int argc, char **argv)
         printf("Residual %g\n", totalError);
         printf("The error of the iterative solution is %g\n", absoluteError);
     }
-    // TODO: THIS IS TEMPORARY - FOR TEST REASONS
-    int thread_count = 4;
-#   pragma omp parallel num_threads(thread_count)
-    Hello();
 
     return 0;
 
-}
-void Hello(void) {
-    int my_rank = omp_get_thread_num();
-    int thread_count = omp_get_num_threads();
-
-    printf("Hello from thread %d of %d\n", my_rank, thread_count);
 }

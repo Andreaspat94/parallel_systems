@@ -13,3 +13,12 @@ Time taken 0 seconds 440 milliseconds
 Residual 5.42574e-09
 The error of the iterative solution is 0.000634165
 [argo354@argo seqJacobi]$ 
+
+
+OpenMP + MPI(last commit on 21/9):
+
+Δοκιμασμενο σε 840*840 (μονο τοπικα)
+
+
+Με το openMP+ MPI καταφέρνω να ριξω το mpi time κατα λίγο, αλλα ανέβηκε ο συνολικος χρόνος..πως γινεται αυτο; δεν εχω καταλαβει ακομα.
+Υπάρχουν καποια σχολια για τη δικη μας κατανόηση στο κώδικα του #pragma omp
