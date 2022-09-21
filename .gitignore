@@ -3,3 +3,5 @@ cmake-build-debug-wsl/
 cmake-build-release/
 cmake-build-release-wsl/
 bin/
+argo/
+
