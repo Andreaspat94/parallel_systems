@@ -1,5 +1,6 @@
 #include "jacobi_iteration_original.h"
 #include <math.h>
+#include <stdlib.h>
 
 void jacobi_precalculate_original(
     double xStart, double yStart,
@@ -7,7 +8,9 @@ void jacobi_precalculate_original(
     double deltaX, double deltaY,
     double alpha,
     precalculations_t *precalculations)
-{}
+{
+    precalculations->f = NULL;
+}
 
 double jacobi_iteration_original(
     double xStart, double yStart,

@@ -1,11 +1,17 @@
+/**
+ * Precalculates all fX^2 and fY^2.
+ * Memory overhead: O(n+m).
+ */
+
 #include "jacobi_iteration_opt2.h"
 #include <stdlib.h>
+#include <stdio.h>
 #include <math.h>
 
 #define CX precalculations->cx
 #define CY precalculations->cy
 #define CC precalculations->cc
-#define F2  precalculations->f
+#define F  precalculations->f
 
 void jacobi_precalculate_opt2(
     double xStart, double yStart,
@@ -14,15 +20,20 @@ void jacobi_precalculate_opt2(
     double alpha,
     precalculations_t *precalculations)
 {
-#define FY2(y) F2[y]
-#define FX2(x) F2[maxYCount + x]
+#define FY2(y) F[y]
+#define FX2(x) F[maxYCount + x]
 
     // Coefficients
     CX = 1.0/(deltaX*deltaX);
     CY = 1.0/(deltaY*deltaY);
     CC = -2.0*CX-2.0*CY-alpha;
 
-    F2 = malloc(sizeof(double) * (maxYCount + maxXCount));
+    F = malloc(sizeof(double) * (maxYCount + maxXCount));
+    if (F == NULL)
+    {
+        fprintf(stderr, "Could not allocate memory for precalculations.");
+        exit(1);
+    }
 
     for (int y = 0; y < maxYCount; y++)
     {
@@ -48,8 +59,8 @@ double jacobi_iteration_opt2(
     double alpha, double omega,
     precalculations_t *precalculations)
 {
-#define FY2(y) F2[y]
-#define FX2(x) F2[maxYCount-2 + x]
+#define FY2(y) F[y]
+#define FX2(x) F[maxYCount-2 + x]
 #define SRC(XX,YY) src[(YY)*maxXCount+(XX)]
 #define DST(XX,YY) dst[(YY)*maxXCount+(XX)]
 

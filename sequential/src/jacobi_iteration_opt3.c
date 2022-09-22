@@ -1,5 +1,11 @@
+/**
+ * Precalculates all f.
+ * Memory overhead: O(n*m).
+ */
+
 #include "jacobi_iteration_opt3.h"
 #include <stdlib.h>
+#include <stdio.h>
 #include <math.h>
 
 #define CX precalculations->cx
@@ -20,6 +26,11 @@ void jacobi_precalculate_opt3(
     CC = -2.0*CX-2.0*CY-alpha;
 
     F = malloc(sizeof(double) * (maxYCount * maxXCount));
+    if (F == NULL)
+    {
+        fprintf(stderr, "Could not allocate memory for precalculations.");
+        exit(1);
+    }
 
     for (int y = 0; y < maxYCount; y++)
     {

@@ -157,6 +157,8 @@ int main(int argc, char **argv)
 
     printf("Residual %g\n",error);
 
+    free_precalculations(&precalculations);
+
     // u_old holds the solution after the most recent buffers swap.
     double absoluteError = check_solution(
         xLeft, yBottom,
@@ -165,8 +167,6 @@ int main(int argc, char **argv)
         deltaX, deltaY);
 
     printf("The error of the iterative solution is %g\n", absoluteError);
-
-    // TODO: free "precalculations.f".
 
     return 0;
 }
