@@ -1,11 +1,10 @@
 
 # Example executions:
 # 1) $ make run-release
-#	Will run the release executable with default problem size 840.
+#	Will run the release executable with the default problem size 840.
 # 2) $ make run-release size=1680
-#	Will run the release executable with supported problem size 1680.
+#	Will run the release executable with problem size 1680.
 
-# Receives argument "size". Default value: 840.
 size ?= 840
 
 COMMON_SOURCES := $(shell find ../common/src/ -name "*.c")
@@ -37,27 +36,23 @@ run-release: .prepare-run
 qsub-debug: .prepare-qsub
 	@cat ./PBS_template.sh |\
 		sed -e 's/%TARGET%/debug/' -e 's/%SIZE%/${size}/' |\
-		qsub -o ./argo/outputs/ -e ./argo/outputs/
-qsub-release:
+		qsub -o ./argo/outputs/ -e ./argo/outputs/ |\
+		tee .latest_qsub_job_id
+qsub-release: .prepare-qsub
 	@cat ./PBS_template.sh |\
 		sed -e 's/%TARGET%/release/' -e 's/%SIZE%/${size}/' |\
-		qsub -o ./argo/outputs/ -e ./argo/outputs/
+		qsub -o ./argo/outputs/ -e ./argo/outputs/ |\
+		tee .latest_qsub_job_id
 
-show-latest-qsub-output:
-	@python -c 'print("~" * 80)' &&\
-	ls -lt ./argo/outputs/ | sed -n 2,3p &&\
-	python -c 'print("~" * 80)' &&\
-	cat `ls -t ./argo/outputs/* | head -n 1` &&\
-	python -c 'print("~" * 80)' &&\
-	cat `ls -t ./argo/outputs/* | sed -n 2p` &&\
-	python -c 'print("~" * 80)'
+show-latest-qsub-outputs:
+	@../common/scripts/show_qsub_job_outputs.sh || true
 
 clean-bin:
-	rm ./argo/bin/*
+	rm -f ./argo/bin/*
 clean-inputs:
-	rm ./argo/inputs/*
+	rm -f ./argo/inputs/*
 clean-outputs:
-	rm ./argo/outputs/*
+	rm -f .latest_qsub_job_id ./argo/outputs/*
 clean-all:
-	rm -rf ./argo/
+	rm -rf .latest_qsub_job_id ./argo/
 
