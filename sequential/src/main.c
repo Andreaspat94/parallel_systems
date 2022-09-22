@@ -43,6 +43,7 @@
 #include "common/check_solution.h"
 #include "jacobi_iteration_original.h"
 #include "jacobi_iteration_opt1.h"
+#include "jacobi_iteration_opt2.h"
 
 int main(int argc, char **argv)
 {
@@ -83,6 +84,11 @@ int main(int argc, char **argv)
             {
                 jacobi_precalculate = &jacobi_precalculate_opt1;
                 jacobi_iteration    = &jacobi_iteration_opt1;
+            }
+            else if (!strcmp("-O2", arg))
+            {
+                jacobi_precalculate = &jacobi_precalculate_opt2;
+                jacobi_iteration    = &jacobi_iteration_opt2;
             }
             else
             {
