@@ -36,16 +36,20 @@ run-release: .prepare-run
 qsub-debug: .prepare-qsub
 	@cat ./PBS_template.sh |\
 		sed -e 's/%TARGET%/debug/' -e 's/%SIZE%/${size}/' |\
+		tee ./argo/inputs/temp.txt |\
 		qsub -o ./argo/outputs/ -e ./argo/outputs/ |\
-		tee .latest_qsub_job_id
+		tee .latest_qsub_job_id &&\
+		../common/scripts/rename_pbs_config.sh ./argo/inputs/temp.txt
 qsub-release: .prepare-qsub
 	@cat ./PBS_template.sh |\
 		sed -e 's/%TARGET%/release/' -e 's/%SIZE%/${size}/' |\
+		tee ./argo/inputs/temp.txt |\
 		qsub -o ./argo/outputs/ -e ./argo/outputs/ |\
-		tee .latest_qsub_job_id
+		tee .latest_qsub_job_id &&\
+		../common/scripts/rename_pbs_config.sh ./argo/inputs/temp.txt
 
-show-latest-qsub-outputs:
-	@../common/scripts/show_qsub_job_outputs.sh || true
+show-latest-qsub-info:
+	@../common/scripts/show_qsub_job_info.sh || true
 
 clean-bin:
 	rm -f ./argo/bin/*

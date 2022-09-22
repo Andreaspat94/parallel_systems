@@ -1,8 +1,8 @@
 #!/bin/bash
 
-fullpath=`cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && (pwd -W 2> /dev/null || pwd)`
+absolute_path=`cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && (pwd -W 2> /dev/null || pwd)`
 
-. "$fullpath/print.sh"
+. "$absolute_path/print.sh"
 
 ################################################################################################
 
@@ -37,17 +37,19 @@ function print_header {
     local file="$2"
     local file_creation_date="`stat \"$file\" | tail -n 1 | sed -e 's/Birth://' -e 's/\.[0-9]\{9\}//g' | xargs`"    
 
-    python -c 'print("~" * 80)'
+    python -c 'print("~" * 84)'
     python -c "print('~' * 4 + ' ($type | $file | $file_creation_date)')"
-    python -c 'print("~" * 80)'
+    python -c 'print("~" * 84)'
 }
 
 function print_body {
     local type="$1"
     local file="$2"
 
-    if [[ $type == stdout ]]; then
-        print_green "$(cat $file)"
+    if [[ $type == pbs_config ]]; then
+        print_cyan "`cat $file`"
+    elif [[ $type == stdout ]]; then
+        print_green "`cat $file`"
     elif [[ $type == stderr ]]; then
         print_red "`cat $file`"
     else
@@ -72,6 +74,7 @@ function print_block {
     print_body $type $file
 }
 
+print_block pbs_config "./argo/inputs/$job_id.pbs_config"
 print_block stdout "./argo/outputs/$job_id.OU"
 if [[ $? == 1 ]]; then
     echo
