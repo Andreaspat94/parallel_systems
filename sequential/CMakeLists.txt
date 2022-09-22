@@ -11,7 +11,6 @@ include_directories(../common/include/)
 include_directories(./include/)
 
 file(GLOB_RECURSE SOURCES ./src/**.c ../common/src/**.c)
-message("${SOURCES}")
 add_executable(${PROJECT_NAME} ${SOURCES})
 
 target_link_libraries(${PROJECT_NAME} ${MPI_C_LIBRARIES} -lm)
