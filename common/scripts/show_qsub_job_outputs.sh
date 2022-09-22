@@ -8,15 +8,21 @@ fullpath=`cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && (pwd -W 2> /dev/nu
 
 if [[ $# -eq 0 ]]; then
     # Specific job id was not given. Trying ".latest_qsub_job_id" file.
-    if [ ! -f .latest_qsub_job_id ]; then
+    if [[ ! -f .latest_qsub_job_id ]]; then
+        # Latest job id file required but not found.
         print_error 'No ".latest_qsub_job_id" file found. Aborting...'
         exit 1
     fi
     job_id="`cat .latest_qsub_job_id`"
-elif [[ "$1" =~ ^[0-9]+\.argo$ ]]; then
+    if [[ ! $job_id =~ ^[0-9]+\.argo$ ]]; then
+        # Latest job id file found but with wrong contents.
+        print_error 'Invalid job id format inside ".latest_qsub_job_id". Aborting...'
+        exit 1
+    fi
+elif [[ $1 =~ ^[0-9]+\.argo$ ]]; then
     # Specific job id given.
     job_id="$1"
-elif [[ "$1" =~ ^[0-9]+$ ]]; then
+elif [[ $1 =~ ^[0-9]+$ ]]; then
     # Specific job id given, but only the number part.
     job_id="$1.argo"
 else
@@ -40,9 +46,9 @@ function print_body {
     local type="$1"
     local file="$2"
 
-    if [[ "$type" == "stdout" ]]; then
+    if [[ $type == stdout ]]; then
         print_green "$(cat $file)"
-    elif [[ "$type" == "stderr" ]]; then
+    elif [[ $type == stderr ]]; then
         print_red "`cat $file`"
     else
         cat $file
@@ -53,10 +59,10 @@ function print_block {
     local type="$1"
     local file="$2"
 
-    if [ ! -f "$file" ]; then
+    if [[ ! -f $file ]]; then
         # File does not exist.
         return 1
-    elif [[ "`wc -c \"$file\" | cut -d \" \" -f1`" == "0" ]]; then
+    elif [[ `wc -c $file | cut -d " " -f1` -eq 0 ]]; then
         # File is empty.
         return 0
     fi
@@ -67,7 +73,7 @@ function print_block {
 }
 
 print_block stdout "./argo/outputs/$job_id.OU"
-if [ "$?" == "1" ]; then
+if [[ $? == 1 ]]; then
     echo
     print_error "Did not find any files for job \"$job_id\" in \"./argo/outputs/\""
     echo
