@@ -33,13 +33,16 @@
  *************************************************************/
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <math.h>
 #include <time.h>
 #include <mpi.h>
+#include <string.h>
 #include "common/read_input.h"
 #include "common/allocate_grid.h"
 #include "common/check_solution.h"
-#include "one_jacobi_iteration.h"
+#include "jacobi_iteration_original.h"
+#include "jacobi_iteration_opt1.h"
 
 int main(int argc, char **argv)
 {
@@ -49,9 +52,6 @@ int main(int argc, char **argv)
     int maxIterationCount;
     read_input(&n, &m, &alpha, &relax, &maxAcceptableError, &maxIterationCount, true);
 
-    double *u, *u_old;
-    allocate_grid(n, m, &u, &u_old);
-
     // Solve in [-1, 1] x [-1, 1]
     double xLeft = -1.0, xRight = 1.0;
     double yBottom = -1.0, yUp = 1.0;
@@ -59,13 +59,51 @@ int main(int argc, char **argv)
     double deltaX = (xRight-xLeft)/(n-1);
     double deltaY = (yUp-yBottom)/(m-1);
 
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+
+    void (*jacobi_precalculate)(double, double, int, int, double, double, double,
+        precalculations_t*);
+    double (*jacobi_iteration)(double, double, int, int, const double*, double*, double, double,
+        double, double, precalculations_t*);
+    {
+        if (argc > 2)
+        {
+            fprintf(stderr, "No more than 1 argument.");
+            exit(1);
+        }
+        else if (argc == 2)
+        {
+            const char *arg = argv[1];
+            if (!strcmp("-O0", arg))
+            {
+                jacobi_precalculate = &jacobi_precalculate_original;
+                jacobi_iteration    = &jacobi_iteration_original;
+            }
+            else if (!strcmp("-O1", arg))
+            {
+                jacobi_precalculate = &jacobi_precalculate_opt1;
+                jacobi_iteration    = &jacobi_iteration_opt1;
+            }
+            else
+            {
+                fprintf(stderr, "Valid arguments: \"-O0\" (default), \"-O1\"");
+                exit(1);
+            }
+        }
+        else
+        {
+            jacobi_precalculate = &jacobi_precalculate_original;
+            jacobi_iteration    = &jacobi_iteration_original;
+        }
+    }
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+
     precalculations_t precalculations;
-    precalculate(
-        xLeft, yBottom,
-        n+2, m+2,
-        deltaX, deltaY,
-        alpha,
-        &precalculations);
+    (*jacobi_precalculate)(xLeft, yBottom, n, m, deltaX, deltaY, alpha, &precalculations);
+
+    double *u, *u_old;
+    allocate_grid(n, m, &u, &u_old);
 
     int iterationCount = 0;
     double error = HUGE_VAL;
@@ -79,11 +117,14 @@ int main(int argc, char **argv)
     {
         // printf("Iteration %i", iterationCount);
 
-        error = one_jacobi_iteration(
+        error = jacobi_iteration(
+            xLeft, yBottom,
             n+2, m+2,
             u_old, u,
-            relax,
-            &precalculations);
+            deltaX, deltaY,
+            alpha, relax,
+            &precalculations
+        );
 
         // printf("\tError %g\n", error);
 
