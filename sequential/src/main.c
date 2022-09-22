@@ -44,6 +44,7 @@
 #include "jacobi_iteration_original.h"
 #include "jacobi_iteration_opt1.h"
 #include "jacobi_iteration_opt2.h"
+#include "jacobi_iteration_opt3.h"
 
 int main(int argc, char **argv)
 {
@@ -90,9 +91,14 @@ int main(int argc, char **argv)
                 jacobi_precalculate = &jacobi_precalculate_opt2;
                 jacobi_iteration    = &jacobi_iteration_opt2;
             }
+            else if (!strcmp("-O3", arg))
+            {
+                jacobi_precalculate = &jacobi_precalculate_opt3;
+                jacobi_iteration    = &jacobi_iteration_opt3;
+            }
             else
             {
-                fprintf(stderr, "Valid arguments: \"-O0\" (default), \"-O1\"");
+                fprintf(stderr, "Valid arguments: \"-O0\" (default), \"-O1\", \"-O2\", \"-O3\"");
                 exit(1);
             }
         }
