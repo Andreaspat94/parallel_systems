@@ -37,48 +37,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include <mpi.h>
-
-/*************************************************************
- * Performs one iteration of the Jacobi method and computes
- * the residual value.
- *
- * NOTE: u(0,*), u(maxXCount-1,*), u(*,0) and u(*,maxYCount-1)
- * are BOUNDARIES and therefore not part of the solution.
- 
- moved to body of for
- double one_jacobi_iteration(double xStart, double yStart,
-                            int maxXCount, int maxYCount,
-                            double *src, double *dst,
-                            double deltaX, double deltaY,
-                            double alpha, double omega)
-*************************************************************/
-
-/**********************************************************
- * Checks the error between numerical and exact solutions
- **********************************************************/
-double checkSolution(double xStart, double yStart,
-                     int maxXCount, int maxYCount,
-                     double *u,
-                     double deltaX, double deltaY)
-{
-#define U(XX,YY) u[(YY)*maxXCount+(XX)]
-    int x, y;
-    double fX, fY;
-    double localError, error = 0.0;
-
-    for (y = 1; y < (maxYCount-1); y++)
-    {
-        fY = yStart + (y-1)*deltaY;
-        for (x = 1; x < (maxXCount-1); x++)
-        {
-            fX = xStart + (x-1)*deltaX;
-            localError = U(x,y) - (1.0-fX*fX)*(1.0-fY*fY);
-            error += localError*localError;
-        }
-    }
-    return sqrt(error)/((maxXCount-2)*(maxYCount-2));
-}
-
+#include "common/check_solution.h"
 
 int main(int argc, char **argv)
 {
@@ -356,7 +315,7 @@ int main(int argc, char **argv)
     printf("Rank %d: Time taken %d seconds %d milliseconds\n", rank, msec/1000, msec%1000);
 
     // u_old holds the solution after the most recent buffers swap
-    double absoluteError = checkSolution(xLeft, yBottom,
+    double absoluteError = check_solution(xLeft, yBottom,
                                          n+2, m+2,
                                          u_old,
                                          deltaX, deltaY);

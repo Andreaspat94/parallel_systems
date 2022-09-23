@@ -8,16 +8,19 @@
 size ?= 840
 n ?= 4
 
+COMMON_SOURCES := $(shell find ../common/src/ -name "*.c")
 THIS_SOURCES := $(shell find ./src/ -name "*.c")
 
 .prepare-compilation:
 	@mkdir -p ./argo/bin
 compile-profiled: .prepare-compilation
-	mpicc -O3 -g ${THIS_SOURCES} \
+	mpicc -O3 -g ${COMMON_SOURCES} ${THIS_SOURCES} \
+		-I../common/include/ \
 		-L/opt/mpiP-3.5/build/lib -lmpiP -lbfd -lunwind \
 		-lm -o ./argo/bin/profiled.x
 compile-release: .prepare-compilation
-	mpicc -O3 ${THIS_SOURCES} \
+	mpicc -O3 ${COMMON_SOURCES} ${THIS_SOURCES} \
+		-I../common/include/ \
 		-lm -o ./argo/bin/release.x
 compile-all: compile-profiled compile-release
 
