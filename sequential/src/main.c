@@ -170,7 +170,8 @@ int main(int argc, char **argv)
 
     printf("Residual %g\n",error);
 
-    free_precalculations(&precalculations);
+    free(precalculations.f);
+    precalculations.f = NULL;
 
     // u_old holds the solution after the most recent buffers swap.
     double absoluteError = check_solution(

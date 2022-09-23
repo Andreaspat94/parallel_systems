@@ -8,6 +8,4 @@ typedef struct {
     double *f;
 } precalculations_t;
 
-void free_precalculations(precalculations_t *precalculations);
-
 #endif //SEQUENTIAL_PRECALCULATIONS_T_H
