@@ -1,13 +1,13 @@
 /**
- * Precalculates all f.
- * Manual optimizations inside jacobi iteration function:
- *  As few duplicate calculations as possible (e.g. loop invariant code motion).
- *  Move the "SRC(x,y)*cc" term outside of the "updateVal" fraction; thus it becomes "SRC(x,y)".
- * 1) loop invariant code motion.
+ * Precalculates all "f".
  * Memory overhead: O(n*m).
+ *
+ * Manual optimizations inside jacobi iteration function:
+ * - As few duplicate calculations as possible (e.g. loop invariant code motion).
+ * - Move the "SRC(x,y)*cc" term outside of the "updateVal" fraction; thus it becomes "SRC(x,y)".
  */
 
-#include "jacobi_iteration_opt4.h"
+#include "jacobi_iteration_opt3x.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <math.h>
@@ -17,7 +17,7 @@
 #define CC precalculations->cc
 #define F  precalculations->f
 
-void jacobi_precalculate_opt4(
+void jacobi_precalculate_opt3x(
     double xStart, double yStart,
     int maxXCount, int maxYCount,
     double deltaX, double deltaY,
@@ -40,19 +40,19 @@ void jacobi_precalculate_opt4(
     {
         double fY = yStart + y*deltaY;
         double fY2 = fY * fY;
-        int offset = y * maxXCount;
+        int x_offset = y * maxXCount;
 
         for (int x = 0; x < maxXCount; x++)
         {
             double fX = xStart + x*deltaX;
             double fX2 = fX * fX;
 
-            F[offset + x] = -alpha*(1.0-fX2)*(1.0-fY2) - 2.0*(1.0-fX2) - 2.0*(1.0-fY2);
+            F[x_offset + x] = -alpha*(1.0-fX2)*(1.0-fY2) - 2.0*(1.0-fX2) - 2.0*(1.0-fY2);
         }
     }
 }
 
-double jacobi_iteration_opt4(
+double jacobi_iteration_opt3x(
     double xStart, double yStart,
     int maxXCount, int maxYCount,
     const double *src, double *dst,
@@ -69,21 +69,20 @@ double jacobi_iteration_opt4(
 
     for (int y = 1; y < maxYCount-1; y++)
     {
-        int f_offset = (y-1) * (maxXCount-2);
-        double *p_f = f + f_offset - 1; // "f_offset" and "-1" in "f[f_offset+x-1]" are loop invariants.
-
-        int u_offset = y * maxXCount;
+        int x_offset = y * maxXCount;
+        double *_f = f + (y-1)*(maxXCount-2) - 1; // The "-1" simplifies "_f[x-1]" to "_f[x]".
 
         for (int x = 1; x < maxXCount-1; x++)
         {
-            int xx = u_offset + x;
-            const double *p_src = src + xx;
+            int _x = x_offset + x;
+            const double *_src = src + _x;
+
             updateVal = (
-                (p_src[-1]         + p_src[1])*cx +
-                (p_src[-maxXCount] + p_src[maxXCount])*cy -
-                p_f[x]  // previously "f[f_offset+x-1]".
-            ) / cc + p_src[0];
-            dst[xx] = p_src[0] - omega*updateVal;
+                (_src[-1]         + _src[1])*cx +
+                (_src[-maxXCount] + _src[maxXCount])*cy -
+                _f[x]
+            ) / cc + _src[0];
+            dst[_x] = _src[0] - omega*updateVal;
             error += updateVal*updateVal;
         }
     }

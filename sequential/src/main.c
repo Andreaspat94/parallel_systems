@@ -43,9 +43,11 @@
 #include "common/check_solution.h"
 #include "jacobi_iteration_original.h"
 #include "jacobi_iteration_opt1.h"
+#include "jacobi_iteration_opt1x.h"
 #include "jacobi_iteration_opt2.h"
+#include "jacobi_iteration_opt2x.h"
 #include "jacobi_iteration_opt3.h"
-#include "jacobi_iteration_opt4.h"
+#include "jacobi_iteration_opt3x.h"
 
 int main(int argc, char **argv)
 {
@@ -87,24 +89,34 @@ int main(int argc, char **argv)
                 jacobi_precalculate = &jacobi_precalculate_opt1;
                 jacobi_iteration    = &jacobi_iteration_opt1;
             }
+            else if (!strcmp("-O1x", arg))
+            {
+                jacobi_precalculate = &jacobi_precalculate_opt1x;
+                jacobi_iteration    = &jacobi_iteration_opt1x;
+            }
             else if (!strcmp("-O2", arg))
             {
                 jacobi_precalculate = &jacobi_precalculate_opt2;
                 jacobi_iteration    = &jacobi_iteration_opt2;
+            }
+            else if (!strcmp("-O2x", arg))
+            {
+                jacobi_precalculate = &jacobi_precalculate_opt2x;
+                jacobi_iteration    = &jacobi_iteration_opt2x;
             }
             else if (!strcmp("-O3", arg))
             {
                 jacobi_precalculate = &jacobi_precalculate_opt3;
                 jacobi_iteration    = &jacobi_iteration_opt3;
             }
-            else if (!strcmp("-O4", arg))
+            else if (!strcmp("-O3x", arg))
             {
-                jacobi_precalculate = &jacobi_precalculate_opt4;
-                jacobi_iteration    = &jacobi_iteration_opt4;
+                jacobi_precalculate = &jacobi_precalculate_opt3x;
+                jacobi_iteration    = &jacobi_iteration_opt3x;
             }
             else
             {
-                fprintf(stderr, "Valid arguments: \"-O0\" (default), \"-O1\", \"-O2\", \"-O3\"");
+                fprintf(stderr, "Valid arguments: \"-O0\" (default), \"-O1\", \"-O1x\", \"-O2\", \"-O2x\", \"-O3\", \"-O3x\"");
                 exit(1);
             }
         }
