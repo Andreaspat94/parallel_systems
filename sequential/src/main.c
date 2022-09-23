@@ -45,6 +45,7 @@
 #include "jacobi_iteration_opt1.h"
 #include "jacobi_iteration_opt2.h"
 #include "jacobi_iteration_opt3.h"
+#include "jacobi_iteration_opt4.h"
 
 int main(int argc, char **argv)
 {
@@ -95,6 +96,11 @@ int main(int argc, char **argv)
             {
                 jacobi_precalculate = &jacobi_precalculate_opt3;
                 jacobi_iteration    = &jacobi_iteration_opt3;
+            }
+            else if (!strcmp("-O4", arg))
+            {
+                jacobi_precalculate = &jacobi_precalculate_opt4;
+                jacobi_iteration    = &jacobi_iteration_opt4;
             }
             else
             {
