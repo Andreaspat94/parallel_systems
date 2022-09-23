@@ -7,6 +7,7 @@ SET(CMAKE_C_COMPILER mpicc)
 find_package(MPI REQUIRED)
 include_directories(SYSTEM ${MPI_INCLUDE_PATH})
 include_directories(../common/include/)
+include_directories(./include/)
 
 # Use all .c files in ./src/ directory and in its descendant directories.
 file(GLOB_RECURSE SOURCES src/**.c ../common/src/**.c)
