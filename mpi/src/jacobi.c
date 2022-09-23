@@ -37,52 +37,17 @@
 #include <stdlib.h>
 #include <time.h>
 #include <mpi.h>
+#include "common/read_input.h"
+#include "common/allocate_grid.h"
 #include "common/check_solution.h"
 
 int main(int argc, char **argv)
 {
-    /** VALUES ARE ASSIGNED MANUALLY FOR TESTING REASONS.
-    * THIS IS TEMPORARY!
-    */
-    int n = 840, m = 840, mits = 50;
-    double alpha = 0.8, tol = 1e-13, relax = 1.0;
+    int n, m;
+    double alpha, relax;
     double maxAcceptableError;
-    /** DONT FORGET THIS */
-    double error = HUGE_VAL;
-    double totalError = HUGE_VAL;
-    double *u, *u_old, *tmp;
-    int allocCount;
-    int iterationCount, maxIterationCount;
-    double t1, t2;
-
-//    printf("Input n,m - grid dimension in x,y direction:\n");
-//    scanf("%d,%d", &n, &m);
-//    printf("Input alpha - Helmholtz constant:\n");
-//    scanf("%lf", &alpha);
-//    printf("Input relax - successive over-relaxation parameter:\n");
-//    scanf("%lf", &relax);
-//    printf("Input tol - error tolerance for the iterative solver:\n");
-//    scanf("%lf", &tol);
-//    printf("Input mits - maximum solver iterations:\n");
-//    scanf("%d", &mits);
-
-
-    //printf("-> %d, %d, %g, %g, %g, %d\n", n, m, alpha, relax, tol, mits);
-
-    allocCount = (n+2)*(m+2);
-    // Those two calls also zero the boundary elements
-    u = 	(double*)calloc(allocCount, sizeof(double)); // reverse order
-    u_old = (double*)calloc(allocCount, sizeof(double));
-
-//    printf("allocCount=%d u=%p u_old=%p\n", allocCount, u, u_old);
-
-    if (u == NULL || u_old == NULL)
-    {
-        printf("Not enough memory for two %ix%i matrices\n", n+2, m+2);
-        exit(1);
-    }
-    maxIterationCount = mits;
-    maxAcceptableError = tol;
+    int maxIterationCount;
+    read_input(&n, &m, &alpha, &relax, &maxAcceptableError, &maxIterationCount, true);
 
     // Solve in [-1, 1] x [-1, 1]
     double xLeft = -1.0, xRight = 1.0;
@@ -90,6 +55,19 @@ int main(int argc, char **argv)
 
     double deltaX = (xRight-xLeft)/(n-1);
     double deltaY = (yUp-yBottom)/(m-1);
+
+    double *u, *u_old;
+    allocate_grid(n, m, &u, &u_old);
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+    double error = HUGE_VAL;
+    double totalError = HUGE_VAL;
+    double *tmp;
+    int iterationCount;
+    double t1, t2;
+
 
 //  params 8
     double xStart = xLeft;
@@ -110,20 +88,37 @@ int main(int argc, char **argv)
 #define DST(XX,YY) dst[(YY)*maxXCount+(XX)]
     double updateVal;
     double f;
-    // Coefficients
-    double cx = 1.0/(deltaX*deltaX);
-    double cy = 1.0/(deltaY*deltaY);
-    double cc = -2.0*cx-2.0*cy-alpha;
 
-    int x, y;
-    double fX[maxXCount], fY[maxYCount];
-    // Create 2 arrays with fX and fY values. These values are fixed for each iteration.
-    // We are doing this in the same array because always x=y.
-    for (y = 1; y < (maxYCount-1); y++)
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+
+    double cx, cy, cc;
+    double *fX, *fY;
     {
-        fY[y-1] = yStart + (y-1)*deltaY;
-        fX[y-1] = xStart + (y-1)*deltaX;
+        // Coefficients
+        cx = 1.0/(deltaX*deltaX);
+        cy = 1.0/(deltaY*deltaY);
+        cc = -2.0*cx - 2.0*cy - alpha;
+
+        fX = malloc(sizeof(double) * (maxXCount));
+        fY = malloc(sizeof(double) * (maxYCount));
+
+        if (fX == NULL || fY == NULL)
+        {
+            fprintf(stderr, "Could not allocate memory for precalculations.");
+            exit(1);
+        }
+
+        for (int x = 1; x < maxXCount-1; x++)
+        {
+            fX[x-1] = xStart + (x-1)*deltaX;
+        }
+        for (int y = 1; y < maxYCount-1; y++)
+        {
+            fY[y-1] = yStart + (y-1)*deltaY;
+        }
     }
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////
 
     MPI_Comm comm;
     int size, rank, world_size, world_rank, name_len;
@@ -165,6 +160,8 @@ int main(int argc, char **argv)
     MPI_Cart_shift(comm, 0, 1, &west, &east);
     MPI_Cart_shift(comm, 1, 1, &south, &north);
 //    printf("\t-Neighbors for rank %d -- west: %d, east: %d, south: %d, north: %d\n", rank, west, east, south, north);
+
+    int x, y;
 
     //block size
     if (size == 80)
@@ -325,6 +322,8 @@ int main(int argc, char **argv)
         printf("The error of the iterative solution is %g\n", absoluteError);
     }
 
+    free(fX);
+    free(fY);
 
     return 0;
 }
