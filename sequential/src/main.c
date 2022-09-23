@@ -41,6 +41,8 @@
 #include "common/read_input.h"
 #include "common/allocate_grid.h"
 #include "common/check_solution.h"
+#include "precalculations_t.h"
+#include "jacobi_iteration_params_t.h"
 #include "jacobi_iteration_original.h"
 #include "jacobi_iteration_opt1.h"
 #include "jacobi_iteration_opt1x.h"
@@ -68,8 +70,7 @@ int main(int argc, char **argv)
 
     void (*jacobi_precalculate)(double, double, int, int, double, double, double,
         precalculations_t*);
-    double (*jacobi_iteration)(double, double, int, int, const double*, double*, double, double,
-        double, double, precalculations_t*);
+    double (*jacobi_iteration)(jacobi_iteration_params_t*, precalculations_t*);
     {
         if (argc > 2)
         {
@@ -129,11 +130,15 @@ int main(int argc, char **argv)
 
     ////////////////////////////////////////////////////////////////////////////////////////////////
 
+    double *u, *u_old;
+    allocate_grid(n, m, &u, &u_old);
+
     precalculations_t precalculations;
     (*jacobi_precalculate)(xLeft, yBottom, n, m, deltaX, deltaY, alpha, &precalculations);
 
-    double *u, *u_old;
-    allocate_grid(n, m, &u, &u_old);
+    jacobi_iteration_params_t jacobi_iteration_params = {
+        xLeft, yBottom, n+2, m+2, u_old, u, deltaX, deltaY, alpha, relax
+    };
 
     int iterationCount = 0;
     double error = HUGE_VAL;
@@ -147,21 +152,11 @@ int main(int argc, char **argv)
     {
         // printf("Iteration %i", iterationCount);
 
-        error = jacobi_iteration(
-            xLeft, yBottom,
-            n+2, m+2,
-            u_old, u,
-            deltaX, deltaY,
-            alpha, relax,
-            &precalculations
-        );
+        error = jacobi_iteration(&jacobi_iteration_params, &precalculations);
 
         // printf("\tError %g\n", error);
 
-        // Swap the buffers
-        double *tmp = u_old;
-        u_old = u;
-        u = tmp;
+        swap_buffers(&jacobi_iteration_params);
 
         iterationCount++;
     }

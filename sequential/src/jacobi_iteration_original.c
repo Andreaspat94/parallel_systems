@@ -13,15 +13,22 @@ void jacobi_precalculate_original(
 }
 
 double jacobi_iteration_original(
-    double xStart, double yStart,
-    int maxXCount, int maxYCount,
-    const double *src, double *dst,
-    double deltaX, double deltaY,
-    double alpha, double omega,
+    jacobi_iteration_params_t *params,
     precalculations_t *precalculations)
 {
 #define SRC(XX,YY) src[(YY)*maxXCount+(XX)]
 #define DST(XX,YY) dst[(YY)*maxXCount+(XX)]
+
+    double xStart = params->xStart;
+    double yStart = params->yStart;
+    int maxXCount = params->maxXCount;
+    int maxYCount = params->maxYCount;
+    double *src   = params->src;
+    double *dst   = params->dst;
+    double deltaX = params->deltaX;
+    double deltaY = params->deltaY;
+    double alpha  = params->alpha;
+    double omega  = params->omega;
 
     // Coefficients
     double cx = 1.0/(deltaX*deltaX);

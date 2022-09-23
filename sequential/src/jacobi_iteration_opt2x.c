@@ -57,13 +57,16 @@ void jacobi_precalculate_opt2x(
 }
 
 double jacobi_iteration_opt2x(
-    double xStart, double yStart,
-    int maxXCount, int maxYCount,
-    const double *src, double *dst,
-    double deltaX, double deltaY,
-    double alpha, double omega,
+    jacobi_iteration_params_t *params,
     precalculations_t *precalculations)
 {
+    int maxXCount = params->maxXCount;
+    int maxYCount = params->maxYCount;
+    double *src   = params->src;
+    double *dst   = params->dst;
+    double alpha  = params->alpha;
+    double omega  = params->omega;
+
     double error = 0.0;
     double updateVal;
     double cx = CX;

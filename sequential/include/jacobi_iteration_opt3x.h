@@ -2,6 +2,7 @@
 #define SEQUENTIAL_JACOBI_ITERATION_OPT3X_H
 
 #include "./precalculations_t.h"
+#include "jacobi_iteration_params_t.h"
 
 void jacobi_precalculate_opt3x(
     double xStart, double yStart,
@@ -11,11 +12,7 @@ void jacobi_precalculate_opt3x(
     precalculations_t *precalculations);
 
 double jacobi_iteration_opt3x(
-    double xStart, double yStart,
-    int maxXCount, int maxYCount,
-    const double *src, double *dst,
-    double deltaX, double deltaY,
-    double alpha, double omega,
+    jacobi_iteration_params_t *params,
     precalculations_t *precalculations);
 
 #endif //SEQUENTIAL_JACOBI_ITERATION_OPT3X_H

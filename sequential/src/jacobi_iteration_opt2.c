@@ -52,17 +52,20 @@ void jacobi_precalculate_opt2(
 }
 
 double jacobi_iteration_opt2(
-    double xStart, double yStart,
-    int maxXCount, int maxYCount,
-    const double *src, double *dst,
-    double deltaX, double deltaY,
-    double alpha, double omega,
+    jacobi_iteration_params_t *params,
     precalculations_t *precalculations)
 {
 #define FY2(y) F[y]
 #define FX2(x) F[maxYCount-2 + x]
 #define SRC(XX,YY) src[(YY)*maxXCount+(XX)]
 #define DST(XX,YY) dst[(YY)*maxXCount+(XX)]
+
+    int maxXCount = params->maxXCount;
+    int maxYCount = params->maxYCount;
+    double *src   = params->src;
+    double *dst   = params->dst;
+    double alpha  = params->alpha;
+    double omega  = params->omega;
 
     double error = 0.0;
     double updateVal;
