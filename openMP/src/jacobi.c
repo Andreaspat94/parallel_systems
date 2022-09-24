@@ -37,7 +37,6 @@
 #include <stdlib.h>
 #include <time.h>
 #include <mpi.h>
-#include <omp.h>
 
 /*************************************************************
  * Performs one iteration of the Jacobi method and computes
@@ -89,11 +88,12 @@ int main(int argc, char **argv)
      * 840, 1680, 3360, 6720, 13440, 26880
     */
 
-    int n = 840, m = 840, mits = 50;
-    double alpha = 0.8, tol = 1e-13, relax = 1.0;
+    int n, m, mits;
+    double alpha, tol, relax;
     double maxAcceptableError;
     /** DONT FORGET THIS */
     double error = HUGE_VAL;
+    int nthreads;
     double totalError = HUGE_VAL;
     double *u, *u_old, *tmp;
     int allocCount;
@@ -101,15 +101,15 @@ int main(int argc, char **argv)
     double t1, t2;
 
 //    printf("Input n,m - grid dimension in x,y direction:\n");
-//    scanf("%d,%d", &n, &m);
+    scanf("%d,%d", &n, &m);
 //    printf("Input alpha - Helmholtz constant:\n");
-//    scanf("%lf", &alpha);
+    scanf("%lf", &alpha);
 //    printf("Input relax - successive over-relaxation parameter:\n");
-//    scanf("%lf", &relax);
+    scanf("%lf", &relax);
 //    printf("Input tol - error tolerance for the iterative solver:\n");
-//    scanf("%lf", &tol);
+    scanf("%lf", &tol);
 //    printf("Input mits - maximum solver iterations:\n");
-//    scanf("%d", &mits);
+    scanf("%d", &mits);
 
 
     //printf("-> %d, %d, %g, %g, %g, %d\n", n, m, alpha, relax, tol, mits);
@@ -209,6 +209,15 @@ int main(int argc, char **argv)
     MPI_Cart_shift(comm, 1, 1, &south, &north);
 //    printf("\t-Neighbors for rank %d -- west: %d, east: %d, south: %d, north: %d\n", rank, west, east, south, north);
 
+    // broadcast input to all processes
+    if (rank == 0) {
+        MPI_Bcast(&n, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        MPI_Bcast(&m, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        MPI_Bcast(&alpha, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+        MPI_Bcast(&relax, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+        MPI_Bcast(&tol, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+        MPI_Bcast(&mits, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    }
     //block size
     if (size == 80)
     {
@@ -234,18 +243,18 @@ int main(int argc, char **argv)
 
     MPI_Status SStatuses[4], RStatuses[4];
     /* Iterate as long as it takes to meet the convergence criterion */
-    while (iterationCount < maxIterationCount && error > maxAcceptableError)
-    {
-      /** NOTE: u(0,*), u(maxXCount-1,*), u(*,0) and u(*,maxYCount-1)
-       *  are BOUNDARIES and therefore not part of the solution. Take a look at this:
-       *  http://etutorials.org/Linux+systems/cluster+computing+with+linux/Part+II+Parallel+Programming/Chapter+9+Advanced+Topics+in+MPI+Programming/9.3+Revisiting+Mesh+Exchanges/
-       */
+    nthreads = 2;
+    while (iterationCount < maxIterationCount && error > maxAcceptableError) {
+        /** NOTE: u(0,*), u(maxXCount-1,*), u(*,0) and u(*,maxYCount-1)
+         *  are BOUNDARIES and therefore not part of the solution. Take a look at this:
+         *  http://etutorials.org/Linux+systems/cluster+computing+with+linux/Part+II+Parallel+Programming/Chapter+9+Advanced+Topics+in+MPI+Programming/9.3+Revisiting+Mesh+Exchanges/
+         */
 
         /** receive first line and column (green points) from neighbours.*/
 
-        MPI_Irecv(&SRC(1, maxYCount-1), 1, row, north, 0, comm,&RRequests[0]);
+        MPI_Irecv(&SRC(1, maxYCount - 1), 1, row, north, 0, comm, &RRequests[0]);
         MPI_Irecv(&SRC(1, 0), 1, row, south, 0, comm, &RRequests[1]);
-        MPI_Irecv(&SRC(maxXCount-1, 1), 1, column, east, 0, comm, &RRequests[2]);
+        MPI_Irecv(&SRC(maxXCount - 1, 1), 1, column, east, 0, comm, &RRequests[2]);
         MPI_Irecv(&SRC(0, 1), 1, column, west, 0, comm, &RRequests[3]);
 
         /** send first line and column (green points) to neighbours.
@@ -255,10 +264,11 @@ int main(int argc, char **argv)
          * Persistent communication: MPI_Send_Init
          * This prepares Send but not executes
          * It calculates the parameters once (outside the loop)*/
-        MPI_Isend(&SRC(1,1), 1, row, south, 0, comm, &SRequests[0]);
-        MPI_Isend(&SRC(1,maxYCount-2), 1, row, north, 0, comm, &SRequests[1]);
-        MPI_Isend(&SRC(0,1), 1, column, west, 0, comm, &SRequests[2]);
-        MPI_Isend(&SRC(maxXCount-2,1), 1, column, east, 0, comm, &SRequests[3]);
+
+        MPI_Isend(&SRC(1, 1), 1, row, south, 0, comm, &SRequests[0]);
+        MPI_Isend(&SRC(1, maxYCount - 2), 1, row, north, 0, comm, &SRequests[1]);
+        MPI_Isend(&SRC(0, 1), 1, column, west, 0, comm, &SRequests[2]);
+        MPI_Isend(&SRC(maxXCount - 2, 1), 1, column, east, 0, comm, &SRequests[3]);
 
         error = 0.0;
         /** This double for loop is for white points calculations
@@ -268,21 +278,24 @@ int main(int argc, char **argv)
         //schedule(static): assign a fixed number of iterations to each thread. Between dynamic and static, the latter seemed to work better
         //reduction(+ : error): By default all variables are shared in all the threads. So I suposse error do not need
         //a reduction operation, but it seems that it performs way better. The residual error with this parameter is slightly increased
-        #pragma omp parallel for collapse(2) schedule(static) reduction(+ : error) num_threads(2)
-        for (y = 2; y < (maxYCount-2); y++)
-        {
-            for (x = 2; x < (maxXCount-2); x++)
-            {
-
-                updateVal = (	(SRC(x-1,y) + SRC(x+1,y))*cx +
-                                 (SRC(x,y-1) + SRC(x,y+1))*cy +
-                                 SRC(x,y)*cc
-                                 -(-alpha*(1.0-fX[x]*fX[x])*(1.0-fY[y]*fY[y]) - 2.0*(1.0-fX[x]*fX[x]) - 2.0*(1.0-fY[y]*fY[y])))
-                                         /cc;
-                DST(x,y) = SRC(x,y) - omega*updateVal;
-                error += updateVal*updateVal;
+//        #pragma omp parallel num_threads(nthreads)
+//        {
+        #pragma omp parallel for collapse(2) schedule(static) reduction(+ : error)
+            for (y = 2; y < (maxYCount - 2); y++) {
+                for (x = 2; x < (maxXCount - 2); x++) {
+                    updateVal = ((SRC(x - 1, y) + SRC(x + 1, y)) * cx +
+                                 (SRC(x, y - 1) + SRC(x, y + 1)) * cy +
+                                 SRC(x, y) * cc
+                                 -
+                                 (-alpha * (1.0 - fX[x] * fX[x]) * (1.0 - fY[y] * fY[y]) - 2.0 * (1.0 - fX[x] * fX[x]) -
+                                  2.0 * (1.0 - fY[y] * fY[y])))
+                                / cc;
+                    DST(x, y) = SRC(x, y) - omega * updateVal;
+                    error += updateVal * updateVal;
+                }
             }
-        }
+//        }
+
         error = sqrt(error)/((maxXCount-2)*(maxYCount-2));
         MPI_Waitall(4, RRequests, RStatuses);
         /**
@@ -292,6 +305,7 @@ int main(int argc, char **argv)
 
         //south
         y = 1;
+//        #pragma omp parallel for schedule(static) reduction(+ : error) num_threads(nthreads)
         for (x = 1; x < maxXCount-1; x++)
         {
             updateVal = (	(SRC(x-1,y) + SRC(x+1,y))*cx +
@@ -305,6 +319,7 @@ int main(int argc, char **argv)
 
         //north
         y = maxYCount - 2;
+//        #pragma omp parallel for schedule(static) reduction(+ : error) num_threads(nthreads)
         for (x = 1; x < maxXCount-1; x++)
         {
             updateVal = (	(SRC(x-1,y) + SRC(x+1,y))*cx +
@@ -318,6 +333,7 @@ int main(int argc, char **argv)
 
         //west
         x = 1;
+//        #pragma omp parallel for schedule(static) reduction(+ : error) num_threads(nthreads)
         for (y = 1; y < maxYCount-1; y++)
         {
             updateVal = (	(SRC(x-1,y) + SRC(x+1,y))*cx +
@@ -331,6 +347,7 @@ int main(int argc, char **argv)
 
         //east
         x = maxXCount - 2;
+//        #pragma omp parallel for schedule(static) reduction(+ : error) num_threads(nthreads)
         for (y = 1; y < maxYCount-1; y++)
         {
             updateVal = (	(SRC(x-1,y) + SRC(x+1,y))*cx +
