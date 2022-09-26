@@ -39,57 +39,208 @@
 #include <mpi.h>
 #include "common/read_input.h"
 #include "common/allocate_grid.h"
-#include "common/check_solution.h"
+
+/**
+ * Changes:
+ *
+ * - Require that NP is either 80 or a perfect square.
+ *
+ * - Read problem parameters from input file instead of have them hardcoded.
+ *      use a custom struct "bcast_input_t" just for faster sharing of these values.
+ *
+ * - Introduce "comm_t" struct to encapsulate the 3 related variables (i.e. MPI_Comm, size, rank).
+ *
+ * - MPI_Cart_shift(comm, 1, 1, &south, &north); => changed to first "north" then "south".
+ *
+ * - Each process should work on a sub-grid of [-1,1]x[-1,1].
+ *
+ * - Some fixes in indexing in MPI_Irecv's and MPI_Isend's.
+ */
+
+typedef struct {
+    int n;
+    int m;
+    double alpha;
+    double relax;
+    double max_acceptable_error;
+    int max_iteration_count;
+} bcast_input_t;
+
+typedef struct {
+    MPI_Comm id;
+    int rank;
+    int size;
+} comm_t;
+
+typedef struct {
+    int north;
+    int east;
+    int south;
+    int west;
+} neighbour_ranks_t;
+
+bool is_perfect_square(int number)
+{
+    double root = sqrt(number);
+    return root == floor(root);
+}
 
 int main(int argc, char **argv)
 {
-    int n, m;
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+    /// Initialize MPI and collect MPI_COMM_WORLD-related info.
+
+    MPI_Init(NULL,NULL);
+//    MPI_Barrier(MPI_COMM_WORLD); // TODO: why barrier here?
+
+    comm_t comm_world = { MPI_COMM_WORLD };
+    MPI_Comm_size(comm_world.id, &comm_world.size);
+    MPI_Comm_rank(comm_world.id, &comm_world.rank);
+
+    // Require that the total number of processes ∈ {1,4,9,16,25,36,49,64,80}.
+    if (comm_world.size != 80 && !(is_perfect_square(comm_world.size) && comm_world.size < 80))
+    {
+        MPI_Abort(comm_world.id, 1);
+    }
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+    /// Read input values from stdin (only main process) and broadcast them to all processes.
+
+    int n_global, m_global;
     double alpha, relax;
-    double maxAcceptableError;
-    int maxIterationCount;
-    read_input(&n, &m, &alpha, &relax, &maxAcceptableError, &maxIterationCount, true);
+    double max_acceptable_error;
+    int max_iteration_count;
 
-    // Solve in [-1, 1] x [-1, 1]
-    double xLeft = -1.0, xRight = 1.0;
-    double yBottom = -1.0, yUp = 1.0;
+    bcast_input_t input;
 
-    double deltaX = (xRight-xLeft)/(n-1);
-    double deltaY = (yUp-yBottom)/(m-1);
+    if (comm_world.rank == 0)
+    {
+        read_input(&input.n, &input.m, &input.alpha, &input.relax,
+                   &input.max_acceptable_error, &input.max_iteration_count, true);
+    }
+
+    MPI_Bcast(&input, sizeof(bcast_input_t), MPI_BYTE, 0, comm_world.id);
+
+    n_global = input.n;
+    m_global = input.m;
+    alpha = input.alpha;
+    relax = input.relax;
+    max_acceptable_error = input.max_acceptable_error;
+    max_iteration_count = input.max_iteration_count;
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+    /// Create a cartesian topology with reordered process ranks and retrieve the per-process
+    /// coordinates inside the 2D topology.
+    ///
+    /// https://www.open-mpi.org/doc/v3.1/man3/MPI_Dims_create.3.php
+    /// https://www.open-mpi.org/doc/v3.1/man3/MPI_Cart_create.3.php
+    /// https://www.open-mpi.org/doc/v3.0/man3/MPI_Cart_shift.3.php
+
+    int dims[] = {0,0};     // Number of processes per dimension (assigned by "MPI_Dims_create").
+
+    // Assign number of processes to each dimension.
+    MPI_Dims_create(comm_world.size, 2, dims);
+
+    comm_t comm_cart;       // The cartesian topology's new communicator data (later assigned).
+    int periods[] = {0,0};  // Whether the grid is periodic or not (i.e. wraps around) per dimension.
+    int reorder = 1;        // Whether to reorder process ranks or not.
+                            // Rank reordering may improve performance in some MPI implementations.
+
+    // Create the cartesian topology & retrieve its new communicators' related info.
+    MPI_Cart_create(comm_world.id, 2, dims, periods, reorder, &comm_cart.id);
+    MPI_Comm_size(comm_cart.id, &comm_cart.size);
+    MPI_Comm_rank(comm_cart.id, &comm_cart.rank);
+
+    // Get my coordinates inside the cartesian topology.
+    int coords[2];
+    MPI_Cart_coords(comm_cart.id, comm_cart.rank, 2, coords);
+
+    neighbour_ranks_t ranks; // Stencil/neighbour process ranks inside the topology.
+
+    // direction = 0 or 1 corresponding to the two dimensions x,y.
+    MPI_Cart_shift(comm_cart.id, 0, 1, &ranks.west,  &ranks.east);
+    MPI_Cart_shift(comm_cart.id, 1, 1, &ranks.north, &ranks.south);
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+    /// Calculate local grid size.
+
+    int n = n_global / dims[0]; // Local row size (i.e. number of columns).
+    int m = m_global / dims[1]; // Local column size (i.e. number of rows).
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+    {
+        MPI_Comm comm = comm_cart.id;
+        int rank = comm_cart.rank;
+        int size = comm_cart.size;
+        char _;
+        if (rank > 0)
+        {
+            MPI_Recv(&_, 1, MPI_BYTE, rank-1, 0, comm, MPI_STATUS_IGNORE);
+            if (rank < size-1)
+                MPI_Send(&_, 1, MPI_BYTE, rank+1, 0, comm);
+        }
+
+        printf("C[%2d/%d]: neighbour_ranks(W:%2d,E:%2d,N:%2d,S:%2d), my_coords:(%d,%d)\n",
+               rank, size,
+               ranks.west, ranks.east, ranks.north, ranks.south,
+               coords[0], coords[1]);fflush(stdout);
+
+        if (rank == 0 && size > 1)
+        {
+            printf("====> %d,%d\n", dims[0], dims[1]);fflush(stdout);
+            MPI_Send(&_, 1, MPI_BYTE, 1, 0, comm);
+        }
+
+//        MPI_Comm_free(&comm_cart.id);
+        MPI_Barrier(comm_cart.id);
+
+//        MPI_Finalize();
+//        return 0;
+    }
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+    /// Calculate which rectangular parts of [-1,1]x[-1,1] will be assigned to each process.
+
+    // Calculate the part of [-1, 1] that will be assigned to this process.
+    double xSlice = 2.0 / dims[0];  // 2 is the distance between -1 and 1.
+    double xLeft  = -1.0 + xSlice * coords[0];
+    double xRight = xLeft + xSlice;
+
+    double xStart = xLeft;
+    double deltaX = 2.0/(n_global-1);
+    int maxXCount = n + 2;
+
+    // Calculate the part of transpose([-1, 1]) that will be assigned to this process.
+    double ySlice  = 2.0 / dims[1]; // 2 is the distance between -1 and 1.
+    double yBottom = -1.0 + ySlice * coords[1];
+    double yUp     = yBottom + ySlice;
+
+    double yStart = yBottom;
+    double deltaY = 2.0/(m_global-1);
+    int maxYCount = m + 2;
+
+    printf("[%d/%d]: dx=%f dy=%f xs=%f ys=%f\n", comm_cart.rank, comm_cart.size, deltaX, deltaY, xStart, yStart);
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+    /// Create the grids "u" and "u_old" and relevant MPI datatypes for managing their rows and
+    /// columns.
 
     double *u, *u_old;
     allocate_grid(n, m, &u, &u_old);
 
-    ////////////////////////////////////////////////////////////////////////////////////////////////
+    MPI_Datatype row;
+    MPI_Type_contiguous(n, MPI_DOUBLE, &row);
+    MPI_Type_commit(&row);
 
-
-    double error = HUGE_VAL;
-    double totalError = HUGE_VAL;
-    double *tmp;
-    int iterationCount;
-    double t1, t2;
-
-
-//  params 8
-    double xStart = xLeft;
-    double yStart = yBottom;
-    int maxXCount = n+2;
-    int maxYCount = m+2;
-    double *src   = u_old;
-    double *dst  = u;
-    double omega  = relax;
-    alpha         = alpha;
-
-    iterationCount = 0;
-    clock_t start = clock(), diff;
-
-
-    //macros are defined to translate the 2-D index (XX, YY) to the 1-dimensional array:
-#define SRC(XX,YY) src[(YY)*maxXCount+(XX)]
-#define DST(XX,YY) dst[(YY)*maxXCount+(XX)]
-    double updateVal;
-    double f;
+    MPI_Datatype column;
+    MPI_Type_vector(m, 1, maxXCount, MPI_DOUBLE, &column);
+    MPI_Type_commit(&column);
 
     ////////////////////////////////////////////////////////////////////////////////////////////////
+    /// Make any jacobi-iteration precalculations.
 
     double cx, cy, cc;
     double *fX, *fY;
@@ -99,8 +250,8 @@ int main(int argc, char **argv)
         cy = 1.0/(deltaY*deltaY);
         cc = -2.0*cx - 2.0*cy - alpha;
 
-        fX = malloc(sizeof(double) * (maxXCount));
-        fY = malloc(sizeof(double) * (maxYCount));
+        fX = malloc(sizeof(double) * maxXCount);
+        fY = malloc(sizeof(double) * maxYCount);
 
         if (fX == NULL || fY == NULL)
         {
@@ -108,107 +259,60 @@ int main(int argc, char **argv)
             exit(1);
         }
 
-        for (int x = 1; x < maxXCount-1; x++)
+        for (int x = 0; x < n; x++)
         {
-            fX[x-1] = xStart + (x-1)*deltaX;
+            fX[x+1] = xStart + (coords[0]*n + x)*deltaX;
         }
-        for (int y = 1; y < maxYCount-1; y++)
+        for (int y = 0; y < m; y++)
         {
-            fY[y-1] = yStart + (y-1)*deltaY;
+            fY[y+1] = yStart + (coords[1]*m + y)*deltaY;
         }
     }
 
     ////////////////////////////////////////////////////////////////////////////////////////////////
 
-    MPI_Comm comm;
-    int size, rank, world_size, world_rank, name_len;
-    char processor_name[MPI_MAX_PROCESSOR_NAME];
+    double t1 = MPI_Wtime();
+    clock_t clock1 = clock();
 
-    //logical array of size ndims specifying whether the grid is periodic ( true) or not ( false) in each dimension
-    int periods[2] = {0,0};
-    // ranking may be reordered (true) or not (false)
-    int reorder = 1;
-    int coords[2];
-    //The array containing the number of processes to assign to each dimension.
-    int dims[2] ={0,0};
-    int west, east, south, north;
-
-    /** MPI INIT */
-    MPI_Init(NULL,NULL);
-    MPI_Barrier(MPI_COMM_WORLD);
-    t1 = MPI_Wtime();
-
-    // Get the number of processes
-    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
-    // Get the rank of process
-    MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
-
-    //This routine decomposes a given number of processes over a cartesian grid made of the number of dimensions specified.
-    MPI_Dims_create(world_size, 2, dims);
-
-    //Cartesian constructor
-    MPI_Cart_create(MPI_COMM_WORLD, 2, dims, periods, reorder, &comm);
-
-    MPI_Comm_size(comm, &size);
-    MPI_Comm_rank(comm, &rank);
-
-    //Get my coordinated in the new communicator
-    MPI_Cart_coords(comm, rank, 2, coords);
-//    printf("[MPI process %d] I am located at (%d, %d).\n", rank, coords[0], coords[1]);
-
-    // direction = 0 or 1 corresponding to the two dimensions x,y
-    MPI_Cart_shift(comm, 0, 1, &west, &east);
-    MPI_Cart_shift(comm, 1, 1, &south, &north);
-//    printf("\t-Neighbors for rank %d -- west: %d, east: %d, south: %d, north: %d\n", rank, west, east, south, north);
+    ////////////////////////////////////////////////////////////////////////////////////////////////
 
     int x, y;
+    MPI_Request recv_requests[4], send_requests[4];
+    MPI_Status  recv_statuses[4], send_statuses[4];
+    double omega = relax;
+    double *src = u_old;
+    double *dst = u;
+    double *tmp;
+    double updateVal;
 
-    //block size
-    if (size == 80)
+    double error_global = HUGE_VAL;
+    int iteration_count = 0;
+
+    while (iteration_count < max_iteration_count && error_global > max_acceptable_error)
     {
-        x = n/10;
-        y = m/8;
-    }
-    else
-    {
-        x = n / sqrt(world_size);
-        y = m / sqrt(world_size);
-    }
+        // These two macros translate the 2-D index (XX, YY) to the 1-dimensional array:
+#define SRC(XX,YY) src[(YY)*maxXCount+(XX)]
+#define DST(XX,YY) dst[(YY)*maxXCount+(XX)]
 
-    // Datatype creation for halo points
-    MPI_Datatype row;
-    MPI_Type_contiguous(x, MPI_DOUBLE,&row);
-    MPI_Type_commit(&row);
-
-    MPI_Datatype column;
-    MPI_Type_vector(y, 1, maxXCount, MPI_DOUBLE, &column);
-    MPI_Type_commit(&column);
-
-    MPI_Request RRequests[4], SRequests[4];
-
-    MPI_Status SStatuses[4], RStatuses[4];
-    /* Iterate as long as it takes to meet the convergence criterion */
-    while (iterationCount < maxIterationCount && error > maxAcceptableError)
-    {
       /** NOTE: u(0,*), u(maxXCount-1,*), u(*,0) and u(*,maxYCount-1)
        *  are BOUNDARIES and therefore not part of the solution. Take a look at this:
        *  http://etutorials.org/Linux+systems/cluster+computing+with+linux/Part+II+Parallel+Programming/Chapter+9+Advanced+Topics+in+MPI+Programming/9.3+Revisiting+Mesh+Exchanges/
        */
 
-        /** receive first line and column (green points) from neighbours.*/
+        // Receive adjacent lines and columns from neighbours to fill my halo points.
+        MPI_Irecv(&SRC(1, 0),           1, row,    ranks.north, 0, comm_cart.id, &recv_requests[0]);
+        MPI_Irecv(&SRC(1, maxYCount-1), 1, row,    ranks.south, 0, comm_cart.id, &recv_requests[1]);
+        MPI_Irecv(&SRC(0, 1),           1, column, ranks.west,  0, comm_cart.id, &recv_requests[2]);
+        MPI_Irecv(&SRC(maxXCount-1, 1), 1, column, ranks.east,  0, comm_cart.id, &recv_requests[3]);
 
-        MPI_Irecv(&SRC(1, maxYCount-1), 1, row, north, 0, comm,&RRequests[0]);
-        MPI_Irecv(&SRC(1, 0), 1, row, south, 0, comm, &RRequests[1]);
-        MPI_Irecv(&SRC(maxXCount-1, 1), 1, column, east, 0, comm, &RRequests[2]);
-        MPI_Irecv(&SRC(0, 1), 1, column, west, 0, comm, &RRequests[3]);
+        // Send my border lines and columns to neighbours.
+        MPI_Isend(&SRC(1, 1),           1, row,    ranks.north, 0, comm_cart.id, &send_requests[0]);
+        MPI_Isend(&SRC(1, maxYCount-2), 1, row,    ranks.south, 0, comm_cart.id, &send_requests[1]);
+        MPI_Isend(&SRC(1, 1),           1, column, ranks.west,  0, comm_cart.id, &send_requests[2]);
+        MPI_Isend(&SRC(maxXCount-2, 1), 1, column, ranks.east,  0, comm_cart.id, &send_requests[3]);
 
-        /** send first line and column (green points) to neighbours.*/
-        MPI_Isend(&SRC(1,1), 1, row, south, 0, comm, &SRequests[0]);
-        MPI_Isend(&SRC(1,maxYCount-2), 1, row, north, 0, comm, &SRequests[1]);
-        MPI_Isend(&SRC(0,1), 1, column, west, 0, comm, &SRequests[2]);
-        MPI_Isend(&SRC(maxXCount-2,1), 1, column, east, 0, comm, &SRequests[3]);
+        double error = 0.0;
 
-        error = 0.0;
         /** This double for loop is for white points calculations
          * Changed x and y initiate values (from 1 to 2) for white point calculations
          */
@@ -216,24 +320,24 @@ int main(int argc, char **argv)
         {
             for (x = 2; x < (maxXCount-2); x++)
             {
-                updateVal = (	(SRC(x-1,y) + SRC(x+1,y))*cx +
-                                 (SRC(x,y-1) + SRC(x,y+1))*cy +
-                                 SRC(x,y)*cc
-                                 -(-alpha*(1.0-fX[x]*fX[x])*(1.0-fY[y]*fY[y]) - 2.0*(1.0-fX[x]*fX[x]) - 2.0*(1.0-fY[y]*fY[y])))
-                                         /cc;
-                DST(x,y) = SRC(x,y) - omega*updateVal;
-                error += updateVal*updateVal;
+            updateVal = (	(SRC(x-1,y) + SRC(x+1,y))*cx +
+                             (SRC(x,y-1) + SRC(x,y+1))*cy +
+                             SRC(x,y)*cc
+                             -(-alpha*(1.0-fX[x]*fX[x])*(1.0-fY[y]*fY[y]) - 2.0*(1.0-fX[x]*fX[x]) - 2.0*(1.0-fY[y]*fY[y])))
+                        /cc;
+            DST(x,y) = SRC(x,y) - omega*updateVal;
+            error += updateVal*updateVal;
             }
         }
-        error = sqrt(error)/((maxXCount-2)*(maxYCount-2));
 
-        MPI_Waitall(4, RRequests, RStatuses);
+        MPI_Waitall(4, recv_requests, recv_statuses);
+        MPI_Waitall(4, send_requests, send_statuses);
         /**
          * Boarder-halo points are received.
          * Calculations for green points are now made.
          * */
 
-        //south
+        // Top row
         y = 1;
         for (x = 1; x < maxXCount-1; x++)
         {
@@ -246,7 +350,7 @@ int main(int argc, char **argv)
             error += updateVal*updateVal;
         }
 
-        //north
+        // Bottom row
         y = maxYCount - 2;
         for (x = 1; x < maxXCount-1; x++)
         {
@@ -259,7 +363,7 @@ int main(int argc, char **argv)
             error += updateVal*updateVal;
         }
 
-        //west
+        // Left column
         x = 1;
         for (y = 1; y < maxYCount-1; y++)
         {
@@ -272,7 +376,7 @@ int main(int argc, char **argv)
             error += updateVal*updateVal;
         }
 
-        //east
+        // Right column
         x = maxXCount - 2;
         for (y = 1; y < maxYCount-1; y++)
         {
@@ -285,42 +389,54 @@ int main(int argc, char **argv)
             error += updateVal*updateVal;
         }
 
+        double error_iteration_sum;
+        MPI_Allreduce(&error, &error_iteration_sum, 1, MPI_DOUBLE, MPI_SUM, comm_cart.id);
+
+        error_global = sqrt(error_iteration_sum)/(n_global*m_global);
+
+        if (comm_cart.rank == 0)
+            printf("===============> %g\n", error_global);
+
         //printf("\tError %g\n", error);
-        iterationCount++;
+        iteration_count++;
         // Swap the buffers
-        tmp = u_old;
-        u_old = u;
-        u = tmp;
-
-        MPI_Reduce(&error, &totalError, 1, MPI_DOUBLE, MPI_SUM, 0, comm);
-
-        /** ALL REDUCE */
-//        MPI_Allreduce(&error, &totalError, 1, MPI_DOUBLE, MPI_SUM, comm);
-        MPI_Waitall(4, SRequests, SStatuses);
+        tmp = src;
+        src = dst;
+        dst = tmp;
     }
-    /** This is to avoid a WARNING about memory leaks */
-    MPI_Type_free(&column);
+
+//    printf("AFTER LOOP: [%d/%d]\n", comm_cart.rank, comm_cart.size);
+    MPI_Barrier(comm_cart.id); // TODO: do we need this here?
+
+    double t2 = MPI_Wtime();
+    clock_t clock2 = clock();
+    clock_t msec = (clock2 - clock1) * 1000 / CLOCKS_PER_SEC;
+    printf("Rank %d: Iterations=%3d Elapsed MPI Wall time is %f\n", comm_cart.rank, iteration_count, t2 - t1);
+    printf("Rank %d: Time taken %ld seconds %ld milliseconds\n", comm_cart.rank, msec/1000, msec%1000);
+
+    if (comm_cart.rank == 0)
+    {
+        printf("Residual %g\n", error_global);
+    }
+
     MPI_Type_free(&row);
+    MPI_Type_free(&column);
+    MPI_Comm_free(&comm_cart.id);
 
-    t2 = MPI_Wtime();
-    printf( "Rank %d: Iterations=%3d Elapsed MPI Wall time is %f\n", rank, iterationCount, t2 - t1 );
+    // TODO: also parallelize check_solution?
+//    // u_old holds the solution after the most recent buffers swap
+//    double absoluteError = check_solution(xLeft, yBottom,
+//                                          n_global+2, m_global+2,
+//                                          u_old,
+//                                          deltaX, deltaY);
+//
+//    if (comm_world.rank == 0) {
+//        //total error: Propably the less this value is the more accurate our solution is
+//        printf("Residual %g\n", totalError);
+//        printf("The error of the iterative solution is %g\n", absoluteError);
+//    }
+
     MPI_Finalize();
-
-
-    diff = clock() - start;
-    int msec = diff * 1000 / CLOCKS_PER_SEC;
-    printf("Rank %d: Time taken %d seconds %d milliseconds\n", rank, msec/1000, msec%1000);
-
-    // u_old holds the solution after the most recent buffers swap
-    double absoluteError = check_solution(xLeft, yBottom,
-                                         n+2, m+2,
-                                         u_old,
-                                         deltaX, deltaY);
-    if (rank == 0) {
-        //total error: Propably the less this value is the more accurate our solution is
-        printf("Residual %g\n", totalError);
-        printf("The error of the iterative solution is %g\n", absoluteError);
-    }
 
     free(fX);
     free(fY);
