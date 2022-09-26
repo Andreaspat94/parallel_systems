@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # JobName #
-#PBS -N sequential
+#PBS -N openMPI
 
 #Which Queue to use #
 #PBS -q N10C80
