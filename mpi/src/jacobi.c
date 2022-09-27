@@ -172,35 +172,35 @@ int main(int argc, char **argv)
 
     ////////////////////////////////////////////////////////////////////////////////////////////////
     ////////////////////////////////////////////////////////////////////////////////////////////////
-//    {
-//        MPI_Comm comm = comm_cart.id;
-//        int rank = comm_cart.rank;
-//        int size = comm_cart.size;
-//        char _;
-//        if (rank > 0)
-//        {
-//            MPI_Recv(&_, 1, MPI_BYTE, rank-1, 0, comm, MPI_STATUS_IGNORE);
-//            if (rank < size-1)
-//                MPI_Send(&_, 1, MPI_BYTE, rank+1, 0, comm);
-//        }
-//
-//        printf("C[%2d/%d]: neighbour_ranks(W:%2d,E:%2d,N:%2d,S:%2d), my_coords:(%d,%d)\n",
-//               rank, size,
-//               ranks.west, ranks.east, ranks.north, ranks.south,
-//               coords[0], coords[1]);fflush(stdout);
-//
-//        if (rank == 0 && size > 1)
-//        {
-//            printf("====> %d,%d\n", dims[0], dims[1]);fflush(stdout);
-//            MPI_Send(&_, 1, MPI_BYTE, 1, 0, comm);
-//        }
-//
-//        MPI_Comm_free(&comm_cart.id);
-//        MPI_Barrier(comm_world.id);
-//
+    {
+        MPI_Comm comm = comm_cart.id;
+        int rank = comm_cart.rank;
+        int size = comm_cart.size;
+        char _;
+        if (rank > 0)
+        {
+            MPI_Recv(&_, 1, MPI_BYTE, rank-1, 0, comm, MPI_STATUS_IGNORE);
+            if (rank < size-1)
+                MPI_Send(&_, 1, MPI_BYTE, rank+1, 0, comm);
+        }
+
+        printf("C[%2d/%d]: neighbour_ranks(W:%2d,E:%2d,N:%2d,S:%2d), my_coords:(%d,%d)\n",
+               rank, size,
+               ranks.west, ranks.east, ranks.north, ranks.south,
+               coords[0], coords[1]);fflush(stdout);
+
+        if (rank == 0 && size > 1)
+        {
+            printf("====> %d,%d\n", dims[0], dims[1]);fflush(stdout);
+            MPI_Send(&_, 1, MPI_BYTE, 1, 0, comm);
+        }
+
+        MPI_Comm_free(&comm_cart.id);
+        MPI_Barrier(comm_world.id);
+
 //        MPI_Finalize();
 //        return 0;
-//    }
+    }
     ////////////////////////////////////////////////////////////////////////////////////////////////
     ////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -331,7 +331,7 @@ int main(int argc, char **argv)
             }
         }
 
-        MPI_Waitall(4, recv_requests, send_statuses);
+        MPI_Waitall(4, recv_requests, recv_statuses);
         /**
          * Boarder-halo points are received.
          * Calculations for green points are now made.
@@ -392,7 +392,7 @@ int main(int argc, char **argv)
         error = sqrt(error)/((maxXCount-2)*(maxYCount-2));
         MPI_Allreduce(&error, &error_global, 1, MPI_DOUBLE, MPI_SUM, comm_cart.id);
 
-        MPI_Waitall(4, send_requests, recv_statuses);
+        MPI_Waitall(4, send_requests, send_statuses);
 
         //printf("\tError %g\n", error);
         iterationCount++;
