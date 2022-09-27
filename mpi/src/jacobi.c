@@ -210,7 +210,7 @@ int main(int argc, char **argv)
     double xRight = xLeft + xSlice;
 
     double xStart = xLeft;
-    double deltaX = (xRight-xLeft)/(n-1);
+    double deltaX = 2.0/(n_global-1);
     int maxXCount = n + 2;
 
     // Calculate the part of transpose([-1, 1]) that will be assigned to this process.
@@ -219,8 +219,10 @@ int main(int argc, char **argv)
     double yUp     = yBottom + ySlice;
 
     double yStart = yBottom;
-    double deltaY = (yUp-yBottom)/(m-1);
+    double deltaY = 2.0/(m_global-1);
     int maxYCount = m + 2;
+
+    printf("[%d/%d]: dx=%f dy=%f xs=%f ys=%f\n", comm_cart.rank, comm_cart.size, deltaX, deltaY, xStart, yStart);
 
     ////////////////////////////////////////////////////////////////////////////////////////////////
     /// Create the grids "u" and "u_old" and relevant MPI datatypes for managing their rows and
@@ -248,7 +250,6 @@ int main(int argc, char **argv)
         cy = 1.0/(deltaY*deltaY);
         cc = -2.0*cx - 2.0*cy - alpha;
 
-        // TODO: fix these sizes; alternatively fix the indexing inside the main loop.
         fX = malloc(sizeof(double) * maxXCount);
         fY = malloc(sizeof(double) * maxYCount);
 
@@ -258,13 +259,13 @@ int main(int argc, char **argv)
             exit(1);
         }
 
-        for (int x = 1; x < maxXCount-1; x++)
+        for (int x = 0; x < n; x++)
         {
-            fX[x] = xStart + (x-1)*deltaX;
+            fX[x+1] = xStart + (coords[0]*n + x)*deltaX;
         }
-        for (int y = 1; y < maxYCount-1; y++)
+        for (int y = 0; y < m; y++)
         {
-            fY[y] = yStart + (y-1)*deltaY;
+            fY[y+1] = yStart + (coords[1]*m + y)*deltaY;
         }
     }
 
@@ -301,14 +302,14 @@ int main(int argc, char **argv)
         // Receive adjacent lines and columns from neighbours to fill my halo points.
         MPI_Irecv(&SRC(1, 0),           1, row,    ranks.north, 0, comm_cart.id, &recv_requests[0]);
         MPI_Irecv(&SRC(1, maxYCount-1), 1, row,    ranks.south, 0, comm_cart.id, &recv_requests[1]);
-        MPI_Irecv(&SRC(0, 1),           1, column, ranks.east,  0, comm_cart.id, &recv_requests[2]);
-        MPI_Irecv(&SRC(maxXCount-1, 1), 1, column, ranks.west,  0, comm_cart.id, &recv_requests[3]);
+        MPI_Irecv(&SRC(0, 1),           1, column, ranks.west,  0, comm_cart.id, &recv_requests[2]);
+        MPI_Irecv(&SRC(maxXCount-1, 1), 1, column, ranks.east,  0, comm_cart.id, &recv_requests[3]);
 
         // Send my border lines and columns to neighbours.
         MPI_Isend(&SRC(1, 1),           1, row,    ranks.north, 0, comm_cart.id, &send_requests[0]);
         MPI_Isend(&SRC(1, maxYCount-2), 1, row,    ranks.south, 0, comm_cart.id, &send_requests[1]);
-        MPI_Isend(&SRC(1, 1),           1, column, ranks.east,  0, comm_cart.id, &send_requests[2]);
-        MPI_Isend(&SRC(maxXCount-2, 1), 1, column, ranks.west,  0, comm_cart.id, &send_requests[3]);
+        MPI_Isend(&SRC(1, 1),           1, column, ranks.west,  0, comm_cart.id, &send_requests[2]);
+        MPI_Isend(&SRC(maxXCount-2, 1), 1, column, ranks.east,  0, comm_cart.id, &send_requests[3]);
 
         double error = 0.0;
 
