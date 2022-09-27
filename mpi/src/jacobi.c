@@ -91,7 +91,7 @@ int main(int argc, char **argv)
     /// Initialize MPI and collect MPI_COMM_WORLD-related info.
 
     MPI_Init(NULL,NULL);
-    MPI_Barrier(MPI_COMM_WORLD); // TODO: why barrier here?
+//    MPI_Barrier(MPI_COMM_WORLD); // TODO: why barrier here?
 
     comm_t comm_world = { MPI_COMM_WORLD };
     MPI_Comm_size(comm_world.id, &comm_world.size);
@@ -195,8 +195,8 @@ int main(int argc, char **argv)
             MPI_Send(&_, 1, MPI_BYTE, 1, 0, comm);
         }
 
-        MPI_Comm_free(&comm_cart.id);
-        MPI_Barrier(comm_world.id);
+//        MPI_Comm_free(&comm_cart.id);
+        MPI_Barrier(comm_cart.id);
 
 //        MPI_Finalize();
 //        return 0;
@@ -309,8 +309,8 @@ int main(int argc, char **argv)
         // Send my border lines and columns to neighbours.
         MPI_Isend(&SRC(1, 1),           1, row,    ranks.north, 0, comm_cart.id, &send_requests[0]);
         MPI_Isend(&SRC(1, maxYCount-2), 1, row,    ranks.south, 0, comm_cart.id, &send_requests[1]);
-        MPI_Isend(&SRC(1, 1),           1, column, ranks.west,  0, comm_cart.id, &send_requests[2]);
-        MPI_Isend(&SRC(maxXCount-2, 1), 1, column, ranks.east,  0, comm_cart.id, &send_requests[3]);
+        MPI_Isend(&SRC(1, 1),           1, column, ranks.east,  0, comm_cart.id, &send_requests[2]);
+        MPI_Isend(&SRC(maxXCount-2, 1), 1, column, ranks.west,  0, comm_cart.id, &send_requests[3]);
 
         double error = 0.0;
 
@@ -332,6 +332,7 @@ int main(int argc, char **argv)
         }
 
         MPI_Waitall(4, recv_requests, recv_statuses);
+        MPI_Waitall(4, send_requests, send_statuses);
         /**
          * Boarder-halo points are received.
          * Calculations for green points are now made.
@@ -392,8 +393,6 @@ int main(int argc, char **argv)
         error = sqrt(error)/((maxXCount-2)*(maxYCount-2));
         MPI_Allreduce(&error, &error_global, 1, MPI_DOUBLE, MPI_SUM, comm_cart.id);
 
-        MPI_Waitall(4, send_requests, send_statuses);
-
         //printf("\tError %g\n", error);
         iterationCount++;
         // Swap the buffers
@@ -401,6 +400,8 @@ int main(int argc, char **argv)
         u_old = u;
         u = tmp;
     }
+
+    MPI_Barrier(comm_cart.id); // TODO: do we need this here?
 
     double t2 = MPI_Wtime();
     clock_t clock2 = clock();
