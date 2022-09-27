@@ -227,7 +227,7 @@ int main(int argc, char **argv)
     /// columns.
 
     double *u, *u_old;
-    allocate_grid(maxXCount, maxYCount, &u, &u_old);
+    allocate_grid(n, m, &u, &u_old);
 
     MPI_Datatype row;
     MPI_Type_contiguous(n, MPI_DOUBLE, &row);
@@ -260,11 +260,11 @@ int main(int argc, char **argv)
 
         for (int x = 1; x < maxXCount-1; x++)
         {
-            fX[x-1] = xStart + (x-1)*deltaX;
+            fX[x] = xStart + (x-1)*deltaX;
         }
         for (int y = 1; y < maxYCount-1; y++)
         {
-            fY[y-1] = yStart + (y-1)*deltaY;
+            fY[y] = yStart + (y-1)*deltaY;
         }
     }
 
@@ -336,7 +336,7 @@ int main(int argc, char **argv)
          * Calculations for green points are now made.
          * */
 
-        // North
+        // Top row
         y = 1;
         for (x = 1; x < maxXCount-1; x++)
         {
@@ -349,7 +349,7 @@ int main(int argc, char **argv)
             error += updateVal*updateVal;
         }
 
-        // South
+        // Bottom row
         y = maxYCount - 2;
         for (x = 1; x < maxXCount-1; x++)
         {
@@ -362,7 +362,7 @@ int main(int argc, char **argv)
             error += updateVal*updateVal;
         }
 
-        // West
+        // Left column
         x = 1;
         for (y = 1; y < maxYCount-1; y++)
         {
@@ -375,7 +375,7 @@ int main(int argc, char **argv)
             error += updateVal*updateVal;
         }
 
-        // East
+        // Right column
         x = maxXCount - 2;
         for (y = 1; y < maxYCount-1; y++)
         {
@@ -388,15 +388,20 @@ int main(int argc, char **argv)
             error += updateVal*updateVal;
         }
 
-        error = sqrt(error)/((maxXCount-2)*(maxYCount-2));
-        MPI_Allreduce(&error, &error_global, 1, MPI_DOUBLE, MPI_SUM, comm_cart.id);
+        double error_iteration_sum;
+        MPI_Allreduce(&error, &error_iteration_sum, 1, MPI_DOUBLE, MPI_SUM, comm_cart.id);
+
+        error_global = sqrt(error_iteration_sum)/(n_global*m_global);
+
+        if (comm_cart.rank == 0)
+            printf("===============> %g\n", error_global);
 
         //printf("\tError %g\n", error);
         iteration_count++;
         // Swap the buffers
-        tmp = u_old;
-        u_old = u;
-        u = tmp;
+        tmp = src;
+        src = dst;
+        dst = tmp;
     }
 
 //    printf("AFTER LOOP: [%d/%d]\n", comm_cart.rank, comm_cart.size);
