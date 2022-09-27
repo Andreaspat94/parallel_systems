@@ -115,21 +115,18 @@ int main(int argc, char **argv)
 
     if (comm_world.rank == 0)
     {
-        read_input(&n_global, &m_global, &alpha, &relax,
-                   &max_acceptable_error, &max_iteration_count, true);
+        read_input(&input.n, &input.m, &input.alpha, &input.relax,
+                   &input.max_acceptable_error, &input.max_iteration_count, true);
     }
 
     MPI_Bcast(&input, sizeof(bcast_input_t), MPI_BYTE, 0, comm_world.id);
 
-    if (comm_world.rank != 0)
-    {
-        n_global = input.n;
-        m_global = input.m;
-        alpha = input.alpha;
-        relax = input.relax;
-        max_acceptable_error = input.max_acceptable_error;
-        max_iteration_count = input.max_iteration_count;
-    }
+    n_global = input.n;
+    m_global = input.m;
+    alpha = input.alpha;
+    relax = input.relax;
+    max_acceptable_error = input.max_acceptable_error;
+    max_iteration_count = input.max_iteration_count;
 
     ////////////////////////////////////////////////////////////////////////////////////////////////
     /// Create a cartesian topology with reordered process ranks and retrieve the per-process
@@ -251,8 +248,9 @@ int main(int argc, char **argv)
         cy = 1.0/(deltaY*deltaY);
         cc = -2.0*cx - 2.0*cy - alpha;
 
-        fX = malloc(sizeof(double) * n);
-        fY = malloc(sizeof(double) * m);
+        // TODO: fix these sizes; alternatively fix the indexing inside the main loop.
+        fX = malloc(sizeof(double) * maxXCount);
+        fY = malloc(sizeof(double) * maxYCount);
 
         if (fX == NULL || fY == NULL)
         {
@@ -260,13 +258,13 @@ int main(int argc, char **argv)
             exit(1);
         }
 
-        for (int x = 0; x < n; x++)
+        for (int x = 1; x < maxXCount-1; x++)
         {
-            fX[x] = xStart + x*deltaX;
+            fX[x-1] = xStart + (x-1)*deltaX;
         }
-        for (int y = 0; y < m; y++)
+        for (int y = 1; y < maxYCount-1; y++)
         {
-            fY[y] = yStart + y*deltaY;
+            fY[y-1] = yStart + (y-1)*deltaY;
         }
     }
 
@@ -287,9 +285,9 @@ int main(int argc, char **argv)
     double updateVal;
 
     double error_global = HUGE_VAL;
-    int iterationCount = 0;
+    int iteration_count = 0;
 
-    while (iterationCount < max_iteration_count && error_global > max_acceptable_error)
+    while (iteration_count < max_iteration_count && error_global > max_acceptable_error)
     {
         // These two macros translate the 2-D index (XX, YY) to the 1-dimensional array:
 #define SRC(XX,YY) src[(YY)*maxXCount+(XX)]
@@ -394,19 +392,20 @@ int main(int argc, char **argv)
         MPI_Allreduce(&error, &error_global, 1, MPI_DOUBLE, MPI_SUM, comm_cart.id);
 
         //printf("\tError %g\n", error);
-        iterationCount++;
+        iteration_count++;
         // Swap the buffers
         tmp = u_old;
         u_old = u;
         u = tmp;
     }
 
+//    printf("AFTER LOOP: [%d/%d]\n", comm_cart.rank, comm_cart.size);
     MPI_Barrier(comm_cart.id); // TODO: do we need this here?
 
     double t2 = MPI_Wtime();
     clock_t clock2 = clock();
     clock_t msec = (clock2 - clock1) * 1000 / CLOCKS_PER_SEC;
-    printf("Rank %d: Iterations=%3d Elapsed MPI Wall time is %f\n", comm_cart.rank, iterationCount, t2 - t1);
+    printf("Rank %d: Iterations=%3d Elapsed MPI Wall time is %f\n", comm_cart.rank, iteration_count, t2 - t1);
     printf("Rank %d: Time taken %ld seconds %ld milliseconds\n", comm_cart.rank, msec/1000, msec%1000);
 
     if (comm_cart.rank == 0)
