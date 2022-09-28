@@ -233,51 +233,46 @@ int main(int argc, char **argv)
     ////////////////////////////////////////////////////////////////////////////////////////////////
     /// Make any jacobi-iteration precalculations.
 
-    double cx, cy, cc;
-    double *fX, *fY;
+    // Coefficients
+    double cx = 1.0/(deltaX*deltaX);
+    double cy = 1.0/(deltaY*deltaY);
+    double cc = -2.0*cx - 2.0*cy - alpha;
+
+    double *fX = malloc(sizeof(double) * maxXCount);
+    double *fY = malloc(sizeof(double) * maxYCount);
+
+    if (fX == NULL || fY == NULL)
     {
-        // Coefficients
-        cx = 1.0/(deltaX*deltaX);
-        cy = 1.0/(deltaY*deltaY);
-        cc = -2.0*cx - 2.0*cy - alpha;
+        fprintf(stderr, "Could not allocate memory for precalculations.");
+        MPI_Abort(comm_cart.id, 1);
+    }
 
-        fX = malloc(sizeof(double) * maxXCount);
-        fY = malloc(sizeof(double) * maxYCount);
-
-        if (fX == NULL || fY == NULL)
-        {
-            fprintf(stderr, "Could not allocate memory for precalculations.");
-            MPI_Abort(comm_cart.id, 1);
-        }
-
-        for (int x = 0; x < n; x++)
-        {
-            fX[x+1] = xStart + (coords[0]*n + x)*deltaX;
-        }
-        for (int y = 0; y < m; y++)
-        {
-            fY[y+1] = yStart + (coords[1]*m + y)*deltaY;
-        }
+    for (int x = 0; x < n; x++)
+    {
+        fX[x+1] = xStart + (coords[0]*n + x)*deltaX;
+    }
+    for (int y = 0; y < m; y++)
+    {
+        fY[y+1] = yStart + (coords[1]*m + y)*deltaY;
     }
 
     ////////////////////////////////////////////////////////////////////////////////////////////////
+    /// Start executing the jacobi iterations.
+
+    double omega = relax;
+    double update_val;
+    double *src = u_old;
+    double *dst = u;
+    double *tmp;
+    int x, y;
+    double error_global = HUGE_VAL;
+    int iteration_count = 0;
 
     double t1 = MPI_Wtime();
     clock_t clock1 = clock();
 
-    ////////////////////////////////////////////////////////////////////////////////////////////////
-
-    int x, y;
     MPI_Request recv_requests[4], send_requests[4];
     MPI_Status  recv_statuses[4], send_statuses[4];
-    double omega = relax;
-    double *src = u_old;
-    double *dst = u;
-    double *tmp;
-    double updateVal;
-
-    double error_global = HUGE_VAL;
-    int iteration_count = 0;
 
     while (iteration_count < max_iteration_count && error_global > max_acceptable_error)
     {
@@ -285,10 +280,9 @@ int main(int argc, char **argv)
 #define SRC(XX,YY) src[(YY)*maxXCount+(XX)]
 #define DST(XX,YY) dst[(YY)*maxXCount+(XX)]
 
-      /** NOTE: u(0,*), u(maxXCount-1,*), u(*,0) and u(*,maxYCount-1)
-       *  are BOUNDARIES and therefore not part of the solution. Take a look at this:
-       *  http://etutorials.org/Linux+systems/cluster+computing+with+linux/Part+II+Parallel+Programming/Chapter+9+Advanced+Topics+in+MPI+Programming/9.3+Revisiting+Mesh+Exchanges/
-       */
+        // NOTE: u(0,*), u(maxXCount-1,*), u(*,0) and u(*,maxYCount-1) are BOUNDARIES and therefore
+        // not part of the solution. Take a look at this:
+        // http://etutorials.org/Linux+systems/cluster+computing+with+linux/Part+II+Parallel+Programming/Chapter+9+Advanced+Topics+in+MPI+Programming/9.3+Revisiting+Mesh+Exchanges/
 
         // Receive adjacent lines and columns from neighbours to fill my halo points.
         MPI_Irecv(&SRC(1, 0),           1, row,    ranks.north, 0, comm_cart.id, &recv_requests[0]);
@@ -302,86 +296,63 @@ int main(int argc, char **argv)
         MPI_Isend(&SRC(1, 1),           1, column, ranks.west,  0, comm_cart.id, &send_requests[2]);
         MPI_Isend(&SRC(maxXCount-2, 1), 1, column, ranks.east,  0, comm_cart.id, &send_requests[3]);
 
+#define UPDATE_VAL(XX,YY) ((\
+    (SRC((XX)-1,(YY)) + SRC((XX)+1,(YY)))*cx +\
+    (SRC((XX),(YY)-1) + SRC((XX),(YY)+1))*cy +\
+    SRC((XX),(YY))*cc\
+    -(-alpha*(1.0-fX[XX]*fX[XX])*(1.0-fY[YY]*fY[YY]) - 2.0*(1.0-fX[XX]*fX[XX]) - 2.0*(1.0-fY[YY]*fY[YY]))\
+) / cc)
+
         double error = 0.0;
 
-        /** This double for loop is for white points calculations
-         * Changed x and y initiate values (from 1 to 2) for white point calculations
-         */
+        // Calculate white points.
         for (y = 2; y < (maxYCount-2); y++)
         {
             for (x = 2; x < (maxXCount-2); x++)
             {
-            updateVal = (	(SRC(x-1,y) + SRC(x+1,y))*cx +
-                             (SRC(x,y-1) + SRC(x,y+1))*cy +
-                             SRC(x,y)*cc
-                             -(-alpha*(1.0-fX[x]*fX[x])*(1.0-fY[y]*fY[y]) - 2.0*(1.0-fX[x]*fX[x]) - 2.0*(1.0-fY[y]*fY[y])))
-                        /cc;
-            DST(x,y) = SRC(x,y) - omega*updateVal;
-            error += updateVal*updateVal;
+                update_val = UPDATE_VAL(x,y);
+                DST(x,y) = SRC(x,y) - omega*update_val;
+                error += update_val*update_val;
             }
         }
 
+        // Wait for all haloBoarder-halo points are received.
         MPI_Waitall(4, recv_requests, recv_statuses);
-        MPI_Waitall(4, send_requests, send_statuses);
-        /**
-         * Boarder-halo points are received.
-         * Calculations for green points are now made.
-         * */
 
-        // Top row
-        y = 1;
+        // Calculate green points.
         for (x = 1; x < maxXCount-1; x++)
         {
-            updateVal = (	(SRC(x-1,y) + SRC(x+1,y))*cx +
-                             (SRC(x,y-1) + SRC(x,y+1))*cy +
-                             SRC(x,y)*cc
-                             -(-alpha*(1.0-fX[x]*fX[x])*(1.0-fY[y]*fY[y]) - 2.0*(1.0-fX[x]*fX[x]) - 2.0*(1.0-fY[y]*fY[y])))
-                        /cc;
-            DST(x,y) = SRC(x,y) - omega*updateVal;
-            error += updateVal*updateVal;
-        }
+            // Top row
+            y = 1;
+            update_val = UPDATE_VAL(x,y);
+            DST(x,y) = SRC(x,y) - omega*update_val;
+            error += update_val*update_val;
 
-        // Bottom row
-        y = maxYCount - 2;
-        for (x = 1; x < maxXCount-1; x++)
-        {
-            updateVal = (	(SRC(x-1,y) + SRC(x+1,y))*cx +
-                             (SRC(x,y-1) + SRC(x,y+1))*cy +
-                             SRC(x,y)*cc
-                             -(-alpha*(1.0-fX[x]*fX[x])*(1.0-fY[y]*fY[y]) - 2.0*(1.0-fX[x]*fX[x]) - 2.0*(1.0-fY[y]*fY[y])))
-                        /cc;
-            DST(x,y) = SRC(x,y) - omega*updateVal;
-            error += updateVal*updateVal;
+            // Bottom row
+            y = maxYCount - 2;
+            update_val = UPDATE_VAL(x,y);
+            DST(x,y) = SRC(x,y) - omega*update_val;
+            error += update_val*update_val;
         }
-
-        // Left column
-        x = 1;
         for (y = 1; y < maxYCount-1; y++)
         {
-            updateVal = (	(SRC(x-1,y) + SRC(x+1,y))*cx +
-                             (SRC(x,y-1) + SRC(x,y+1))*cy +
-                             SRC(x,y)*cc
-                             -(-alpha*(1.0-fX[x]*fX[x])*(1.0-fY[y]*fY[y]) - 2.0*(1.0-fX[x]*fX[x]) - 2.0*(1.0-fY[y]*fY[y])))
-                        /cc;
-            DST(x,y) = SRC(x,y) - omega*updateVal;
-            error += updateVal*updateVal;
-        }
+            // Left column
+            x = 1;
+            update_val = UPDATE_VAL(x,y);
+            DST(x,y) = SRC(x,y) - omega*update_val;
+            error += update_val*update_val;
 
-        // Right column
-        x = maxXCount - 2;
-        for (y = 1; y < maxYCount-1; y++)
-        {
-            updateVal = (	(SRC(x-1,y) + SRC(x+1,y))*cx +
-                             (SRC(x,y-1) + SRC(x,y+1))*cy +
-                             SRC(x,y)*cc
-                             -(-alpha*(1.0-fX[x]*fX[x])*(1.0-fY[y]*fY[y]) - 2.0*(1.0-fX[x]*fX[x]) - 2.0*(1.0-fY[y]*fY[y])))
-                        /cc;
-            DST(x,y) = SRC(x,y) - omega*updateVal;
-            error += updateVal*updateVal;
+            // Right column
+            x = maxXCount - 2;
+            update_val = UPDATE_VAL(x,y);
+            DST(x,y) = SRC(x,y) - omega*update_val;
+            error += update_val*update_val;
         }
 
         double error_iteration_sum;
         MPI_Allreduce(&error, &error_iteration_sum, 1, MPI_DOUBLE, MPI_SUM, comm_cart.id);
+
+        MPI_Waitall(4, send_requests, send_statuses);
 
         error_global = sqrt(error_iteration_sum)/(n_global*m_global);
 
