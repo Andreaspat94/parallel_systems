@@ -131,7 +131,7 @@ int main(int argc, char **argv)
     ////////////////////////////////////////////////////////////////////////////////////////////////
 
     double *u, *u_old;
-    allocate_grid(n, m, &u, &u_old);
+    allocate_grid(n+2, m+2, &u, &u_old);
 
     precalculations_t precalculations;
     (*jacobi_precalculate)(xLeft, yBottom, n, m, deltaX, deltaY, alpha, &precalculations);
