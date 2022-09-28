@@ -91,7 +91,6 @@ int main(int argc, char **argv)
     /// Initialize MPI and collect MPI_COMM_WORLD-related info.
 
     MPI_Init(NULL,NULL);
-//    MPI_Barrier(MPI_COMM_WORLD); // TODO: why barrier here?
 
     comm_t comm_world = { MPI_COMM_WORLD };
     MPI_Comm_size(comm_world.id, &comm_world.size);
@@ -107,7 +106,7 @@ int main(int argc, char **argv)
     /// Read input values from stdin (only main process) and broadcast them to all processes.
 
     int n_global, m_global;
-    double alpha, relax;
+    double alpha, omega;
     double max_acceptable_error;
     int max_iteration_count;
 
@@ -124,7 +123,7 @@ int main(int argc, char **argv)
     n_global = input.n;
     m_global = input.m;
     alpha = input.alpha;
-    relax = input.relax;
+    omega = input.relax;
     max_acceptable_error = input.max_acceptable_error;
     max_iteration_count = input.max_iteration_count;
 
@@ -162,74 +161,19 @@ int main(int argc, char **argv)
     MPI_Cart_shift(comm_cart.id, 1, 1, &ranks.north, &ranks.south);
 
     ////////////////////////////////////////////////////////////////////////////////////////////////
-    /// Calculate local grid size.
-
-    int n = n_global / dims[0]; // Local row size (i.e. number of columns).
-    int m = m_global / dims[1]; // Local column size (i.e. number of rows).
-
-    ////////////////////////////////////////////////////////////////////////////////////////////////
-    ////////////////////////////////////////////////////////////////////////////////////////////////
-    {
-        MPI_Comm comm = comm_cart.id;
-        int rank = comm_cart.rank;
-        int size = comm_cart.size;
-        char _;
-        if (rank > 0)
-        {
-            MPI_Recv(&_, 1, MPI_BYTE, rank-1, 0, comm, MPI_STATUS_IGNORE);
-            if (rank < size-1)
-                MPI_Send(&_, 1, MPI_BYTE, rank+1, 0, comm);
-        }
-
-        printf("C[%2d/%d]: neighbour_ranks(W:%2d,E:%2d,N:%2d,S:%2d), my_coords:(%d,%d)\n",
-               rank, size,
-               ranks.west, ranks.east, ranks.north, ranks.south,
-               coords[0], coords[1]);fflush(stdout);
-
-        if (rank == 0 && size > 1)
-        {
-            printf("====> %d,%d\n", dims[0], dims[1]);fflush(stdout);
-            MPI_Send(&_, 1, MPI_BYTE, 1, 0, comm);
-        }
-
-//        MPI_Comm_free(&comm_cart.id);
-        MPI_Barrier(comm_cart.id);
-
-//        MPI_Finalize();
-//        return 0;
-    }
-    ////////////////////////////////////////////////////////////////////////////////////////////////
-    ////////////////////////////////////////////////////////////////////////////////////////////////
-
-    ////////////////////////////////////////////////////////////////////////////////////////////////
-    /// Calculate which rectangular parts of [-1,1]x[-1,1] will be assigned to each process.
-
-    // Calculate the part of [-1, 1] that will be assigned to this process.
-    double xSlice = 2.0 / dims[0];  // 2 is the distance between -1 and 1.
-    double xLeft  = -1.0 + xSlice * coords[0];
-    double xRight = xLeft + xSlice;
-
-    double xStart = xLeft;
-    double deltaX = 2.0/(n_global-1);
-    int maxXCount = n + 2;
-
-    // Calculate the part of transpose([-1, 1]) that will be assigned to this process.
-    double ySlice  = 2.0 / dims[1]; // 2 is the distance between -1 and 1.
-    double yBottom = -1.0 + ySlice * coords[1];
-    double yUp     = yBottom + ySlice;
-
-    double yStart = yBottom;
-    double deltaY = 2.0/(m_global-1);
-    int maxYCount = m + 2;
-
-    printf("[%d/%d]: dx=%f dy=%f xs=%f ys=%f\n", comm_cart.rank, comm_cart.size, deltaX, deltaY, xStart, yStart);
-
-    ////////////////////////////////////////////////////////////////////////////////////////////////
     /// Create the grids "u" and "u_old" and relevant MPI datatypes for managing their rows and
     /// columns.
 
+    // (n x m) is the per-process size of its data sub-grid.
+    int n = n_global / dims[0];
+    int m = m_global / dims[1];
+
+    // (maxXCount x maxYCount) is the per-process size of its data sub-grid including the halos.
+    int maxXCount = n + 2;
+    int maxYCount = m + 2;
+
     double *u, *u_old;
-    allocate_grid(n, m, &u, &u_old);
+    allocate_grid(maxXCount, maxYCount, &u, &u_old);
 
     MPI_Datatype row;
     MPI_Type_contiguous(n, MPI_DOUBLE, &row);
@@ -240,53 +184,67 @@ int main(int argc, char **argv)
     MPI_Type_commit(&column);
 
     ////////////////////////////////////////////////////////////////////////////////////////////////
+    /// Solve in [-1, 1] x [-1, 1].
+
+    double xLeft   = -1.0, xRight = 1.0;
+    double yBottom = -1.0,    yUp = 1.0;
+
+    double xStart = xLeft;
+    double yStart = yBottom;
+
+    double deltaX = (xRight-xLeft)/(n_global-1);
+    double deltaY = (yUp-yBottom)/(m_global-1);
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////
     /// Make any jacobi-iteration precalculations.
 
-    double cx, cy, cc;
-    double *fX, *fY;
+    // Coefficients
+    double cx = 1.0/(deltaX*deltaX);
+    double cy = 1.0/(deltaY*deltaY);
+    double cc = -2.0*cx - 2.0*cy - alpha;
+
+    double *fX = malloc(sizeof(double) * maxXCount);
+    double *fY = malloc(sizeof(double) * maxYCount);
+
+    if (fX == NULL || fY == NULL)
     {
-        // Coefficients
-        cx = 1.0/(deltaX*deltaX);
-        cy = 1.0/(deltaY*deltaY);
-        cc = -2.0*cx - 2.0*cy - alpha;
+        fprintf(stderr, "Could not allocate memory for precalculations.");
+        MPI_Abort(comm_cart.id, 1);
+    }
 
-        fX = malloc(sizeof(double) * maxXCount);
-        fY = malloc(sizeof(double) * maxYCount);
-
-        if (fX == NULL || fY == NULL)
-        {
-            fprintf(stderr, "Could not allocate memory for precalculations.");
-            exit(1);
-        }
-
-        for (int x = 0; x < n; x++)
-        {
-            fX[x+1] = xStart + (coords[0]*n + x)*deltaX;
-        }
-        for (int y = 0; y < m; y++)
-        {
-            fY[y+1] = yStart + (coords[1]*m + y)*deltaY;
-        }
+    for (int x = 0; x < n; x++)
+    {
+        fX[x+1] = xStart + (coords[0]*n + x)*deltaX;
+    }
+    for (int y = 0; y < m; y++)
+    {
+        fY[y+1] = yStart + (coords[1]*m + y)*deltaY;
     }
 
     ////////////////////////////////////////////////////////////////////////////////////////////////
+    /// Start executing the jacobi iterations.
+
+    double *src = u_old;
+    double *dst = u;
+    double *tmp;
+    double update_val;
+    double error_global = HUGE_VAL;
+    int iteration_count = 0;
+
+    MPI_Barrier(comm_cart.id);
 
     double t1 = MPI_Wtime();
     clock_t clock1 = clock();
 
-    ////////////////////////////////////////////////////////////////////////////////////////////////
-
-    int x, y;
     MPI_Request recv_requests[4], send_requests[4];
-    MPI_Status  recv_statuses[4], send_statuses[4];
-    double omega = relax;
-    double *src = u_old;
-    double *dst = u;
-    double *tmp;
-    double updateVal;
+    MPI_Status send_statuses[4];
 
-    double error_global = HUGE_VAL;
-    int iteration_count = 0;
+    // Calculate the x and y ranges that the double for loop will operate upon.
+    //  NOTE: A negative rank means that the process has no neighbour at that specific side.
+    int wp_y_begin = ranks.north < 0 ? 1 : 2;
+    int wp_y_end   = ranks.south < 0 ? maxYCount-1 : maxYCount-2;
+    int wp_x_begin = ranks.west < 0  ? 1 : 2;
+    int wp_x_end   = ranks.east < 0  ? maxXCount-1 : maxXCount-2;
 
     while (iteration_count < max_iteration_count && error_global > max_acceptable_error)
     {
@@ -294,10 +252,9 @@ int main(int argc, char **argv)
 #define SRC(XX,YY) src[(YY)*maxXCount+(XX)]
 #define DST(XX,YY) dst[(YY)*maxXCount+(XX)]
 
-      /** NOTE: u(0,*), u(maxXCount-1,*), u(*,0) and u(*,maxYCount-1)
-       *  are BOUNDARIES and therefore not part of the solution. Take a look at this:
-       *  http://etutorials.org/Linux+systems/cluster+computing+with+linux/Part+II+Parallel+Programming/Chapter+9+Advanced+Topics+in+MPI+Programming/9.3+Revisiting+Mesh+Exchanges/
-       */
+        // NOTE: u(0,*), u(maxXCount-1,*), u(*,0) and u(*,maxYCount-1) are BOUNDARIES and therefore
+        // not part of the solution. Take a look at this:
+        // http://etutorials.org/Linux+systems/cluster+computing+with+linux/Part+II+Parallel+Programming/Chapter+9+Advanced+Topics+in+MPI+Programming/9.3+Revisiting+Mesh+Exchanges/
 
         // Receive adjacent lines and columns from neighbours to fill my halo points.
         MPI_Irecv(&SRC(1, 0),           1, row,    ranks.north, 0, comm_cart.id, &recv_requests[0]);
@@ -311,108 +268,90 @@ int main(int argc, char **argv)
         MPI_Isend(&SRC(1, 1),           1, column, ranks.west,  0, comm_cart.id, &send_requests[2]);
         MPI_Isend(&SRC(maxXCount-2, 1), 1, column, ranks.east,  0, comm_cart.id, &send_requests[3]);
 
+#define UPDATE_VAL(XX,YY) ((\
+    (SRC((XX)-1,(YY)) + SRC((XX)+1,(YY)))*cx +\
+    (SRC((XX),(YY)-1) + SRC((XX),(YY)+1))*cy +\
+    SRC((XX),(YY))*cc\
+    -(-alpha*(1.0-fX[XX]*fX[XX])*(1.0-fY[YY]*fY[YY]) - 2.0*(1.0-fX[XX]*fX[XX]) - 2.0*(1.0-fY[YY]*fY[YY]))\
+) / cc)
+
         double error = 0.0;
 
-        /** This double for loop is for white points calculations
-         * Changed x and y initiate values (from 1 to 2) for white point calculations
-         */
-        for (y = 2; y < (maxYCount-2); y++)
+        // Calculate all white points.
+        // Also calculate the green points on the sides that there are no neighbours.
+        for (int y = wp_y_begin; y < wp_y_end; y++)
         {
-            for (x = 2; x < (maxXCount-2); x++)
+            for (int x = wp_x_begin; x < wp_x_end; x++)
             {
-            updateVal = (	(SRC(x-1,y) + SRC(x+1,y))*cx +
-                             (SRC(x,y-1) + SRC(x,y+1))*cy +
-                             SRC(x,y)*cc
-                             -(-alpha*(1.0-fX[x]*fX[x])*(1.0-fY[y]*fY[y]) - 2.0*(1.0-fX[x]*fX[x]) - 2.0*(1.0-fY[y]*fY[y])))
-                        /cc;
-            DST(x,y) = SRC(x,y) - omega*updateVal;
-            error += updateVal*updateVal;
+                update_val = UPDATE_VAL(x,y);
+                DST(x,y) = SRC(x,y) - omega*update_val;
+                error += update_val*update_val;
             }
         }
 
-        MPI_Waitall(4, recv_requests, recv_statuses);
-        MPI_Waitall(4, send_requests, send_statuses);
-        /**
-         * Boarder-halo points are received.
-         * Calculations for green points are now made.
-         * */
-
-        // Top row
-        y = 1;
-        for (x = 1; x < maxXCount-1; x++)
+        // Calculate the green points on the sides that there are neighbours.
+        // The for loop's logic is the following:
+        //  1. Wait for any neighbour process to finish sending the data we need.
+        //  2. Calculate the appropriate green points based on the data we received.
+        //  3. If there are remaining neighbours that have not yet sent their data, then go to
+        //     step 1; otherwise this loop is completed.
+        for (int i = 1; i <= 4; i++)
         {
-            updateVal = (	(SRC(x-1,y) + SRC(x+1,y))*cx +
-                             (SRC(x,y-1) + SRC(x,y+1))*cy +
-                             SRC(x,y)*cc
-                             -(-alpha*(1.0-fX[x]*fX[x])*(1.0-fY[y]*fY[y]) - 2.0*(1.0-fX[x]*fX[x]) - 2.0*(1.0-fY[y]*fY[y])))
-                        /cc;
-            DST(x,y) = SRC(x,y) - omega*updateVal;
-            error += updateVal*updateVal;
+            int index;
+            MPI_Status status;
+
+            MPI_Waitany(4, recv_requests, &index, &status);
+
+            if (status.MPI_SOURCE < 0)
+                continue;
+
+            bool flag = false;
+
+            if ((flag = status.MPI_SOURCE == ranks.north) || status.MPI_SOURCE == ranks.south)
+            {
+                int y = flag ? 1 : maxYCount-2; // Top or bottom row.
+                for (int x = 1; x < maxXCount-1; x++)
+                {
+                    update_val = UPDATE_VAL(x,y);
+                    DST(x,y) = SRC(x,y) - omega*update_val;
+                    error += update_val*update_val;
+                }
+            }
+            else if ((flag = status.MPI_SOURCE == ranks.west) || status.MPI_SOURCE == ranks.east)
+            {
+                int x = flag ? 1 : maxXCount-2; // Left or right column.
+                for (int y = 1; y < maxYCount-1; y++)
+                {
+                    update_val = UPDATE_VAL(x,y);
+                    DST(x,y) = SRC(x,y) - omega*update_val;
+                    error += update_val*update_val;
+                }
+            }
         }
 
-        // Bottom row
-        y = maxYCount - 2;
-        for (x = 1; x < maxXCount-1; x++)
-        {
-            updateVal = (	(SRC(x-1,y) + SRC(x+1,y))*cx +
-                             (SRC(x,y-1) + SRC(x,y+1))*cy +
-                             SRC(x,y)*cc
-                             -(-alpha*(1.0-fX[x]*fX[x])*(1.0-fY[y]*fY[y]) - 2.0*(1.0-fX[x]*fX[x]) - 2.0*(1.0-fY[y]*fY[y])))
-                        /cc;
-            DST(x,y) = SRC(x,y) - omega*updateVal;
-            error += updateVal*updateVal;
-        }
-
-        // Left column
-        x = 1;
-        for (y = 1; y < maxYCount-1; y++)
-        {
-            updateVal = (	(SRC(x-1,y) + SRC(x+1,y))*cx +
-                             (SRC(x,y-1) + SRC(x,y+1))*cy +
-                             SRC(x,y)*cc
-                             -(-alpha*(1.0-fX[x]*fX[x])*(1.0-fY[y]*fY[y]) - 2.0*(1.0-fX[x]*fX[x]) - 2.0*(1.0-fY[y]*fY[y])))
-                        /cc;
-            DST(x,y) = SRC(x,y) - omega*updateVal;
-            error += updateVal*updateVal;
-        }
-
-        // Right column
-        x = maxXCount - 2;
-        for (y = 1; y < maxYCount-1; y++)
-        {
-            updateVal = (	(SRC(x-1,y) + SRC(x+1,y))*cx +
-                             (SRC(x,y-1) + SRC(x,y+1))*cy +
-                             SRC(x,y)*cc
-                             -(-alpha*(1.0-fX[x]*fX[x])*(1.0-fY[y]*fY[y]) - 2.0*(1.0-fX[x]*fX[x]) - 2.0*(1.0-fY[y]*fY[y])))
-                        /cc;
-            DST(x,y) = SRC(x,y) - omega*updateVal;
-            error += updateVal*updateVal;
-        }
-
+        // Calculate the iteration's total error.
         double error_iteration_sum;
         MPI_Allreduce(&error, &error_iteration_sum, 1, MPI_DOUBLE, MPI_SUM, comm_cart.id);
-
         error_global = sqrt(error_iteration_sum)/(n_global*m_global);
 
-        if (comm_cart.rank == 0)
-            printf("===============> %g\n", error_global);
+        //if (comm_cart.rank == 0)
+        //    printf("===============> %g\n", error_global);
 
-        //printf("\tError %g\n", error);
         iteration_count++;
-        // Swap the buffers
-        tmp = src;
-        src = dst;
-        dst = tmp;
-    }
 
-//    printf("AFTER LOOP: [%d/%d]\n", comm_cart.rank, comm_cart.size);
-    MPI_Barrier(comm_cart.id); // TODO: do we need this here?
+        // Swap the buffers
+        tmp = src; src = dst; dst = tmp;
+
+        MPI_Waitall(4, send_requests, send_statuses); // TODO: do we need this? Maybe not...
+    }
 
     double t2 = MPI_Wtime();
     clock_t clock2 = clock();
     clock_t msec = (clock2 - clock1) * 1000 / CLOCKS_PER_SEC;
-    printf("Rank %d: Iterations=%3d Elapsed MPI Wall time is %f\n", comm_cart.rank, iteration_count, t2 - t1);
-    printf("Rank %d: Time taken %ld seconds %ld milliseconds\n", comm_cart.rank, msec/1000, msec%1000);
+    printf("Rank %d: Iterations=%3d Elapsed MPI Wall time is %f\n",
+           comm_cart.rank, iteration_count, t2 - t1);
+    printf("Rank %d: Time taken %ld seconds %ld milliseconds\n",
+           comm_cart.rank, msec/1000, msec%1000);
 
     if (comm_cart.rank == 0)
     {
