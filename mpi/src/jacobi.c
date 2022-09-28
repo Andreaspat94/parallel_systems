@@ -91,7 +91,6 @@ int main(int argc, char **argv)
     /// Initialize MPI and collect MPI_COMM_WORLD-related info.
 
     MPI_Init(NULL,NULL);
-//    MPI_Barrier(MPI_COMM_WORLD); // TODO: why barrier here?
 
     comm_t comm_world = { MPI_COMM_WORLD };
     MPI_Comm_size(comm_world.id, &comm_world.size);
@@ -107,7 +106,7 @@ int main(int argc, char **argv)
     /// Read input values from stdin (only main process) and broadcast them to all processes.
 
     int n_global, m_global;
-    double alpha, relax;
+    double alpha, omega;
     double max_acceptable_error;
     int max_iteration_count;
 
@@ -124,7 +123,7 @@ int main(int argc, char **argv)
     n_global = input.n;
     m_global = input.m;
     alpha = input.alpha;
-    relax = input.relax;
+    omega = input.relax;
     max_acceptable_error = input.max_acceptable_error;
     max_iteration_count = input.max_iteration_count;
 
@@ -160,40 +159,6 @@ int main(int argc, char **argv)
     // direction = 0 or 1 corresponding to the two dimensions x,y.
     MPI_Cart_shift(comm_cart.id, 0, 1, &ranks.west,  &ranks.east);
     MPI_Cart_shift(comm_cart.id, 1, 1, &ranks.north, &ranks.south);
-
-    ////////////////////////////////////////////////////////////////////////////////////////////////
-    ////////////////////////////////////////////////////////////////////////////////////////////////
-    {
-        MPI_Comm comm = comm_cart.id;
-        int rank = comm_cart.rank;
-        int size = comm_cart.size;
-        char _;
-        if (rank > 0)
-        {
-            MPI_Recv(&_, 1, MPI_BYTE, rank-1, 0, comm, MPI_STATUS_IGNORE);
-            if (rank < size-1)
-                MPI_Send(&_, 1, MPI_BYTE, rank+1, 0, comm);
-        }
-
-        printf("C[%2d/%d]: neighbour_ranks(W:%2d,E:%2d,N:%2d,S:%2d), my_coords:(%d,%d)\n",
-               rank, size,
-               ranks.west, ranks.east, ranks.north, ranks.south,
-               coords[0], coords[1]);fflush(stdout);
-
-        if (rank == 0 && size > 1)
-        {
-            printf("====> %d,%d\n", dims[0], dims[1]);fflush(stdout);
-            MPI_Send(&_, 1, MPI_BYTE, 1, 0, comm);
-        }
-
-//        MPI_Comm_free(&comm_cart.id);
-        MPI_Barrier(comm_cart.id);
-
-//        MPI_Finalize();
-//        return 0;
-    }
-    ////////////////////////////////////////////////////////////////////////////////////////////////
-    ////////////////////////////////////////////////////////////////////////////////////////////////
 
     ////////////////////////////////////////////////////////////////////////////////////////////////
     /// Create the grids "u" and "u_old" and relevant MPI datatypes for managing their rows and
@@ -259,20 +224,27 @@ int main(int argc, char **argv)
     ////////////////////////////////////////////////////////////////////////////////////////////////
     /// Start executing the jacobi iterations.
 
-    double omega = relax;
-    double update_val;
     double *src = u_old;
     double *dst = u;
     double *tmp;
-    int x, y;
+    double update_val;
     double error_global = HUGE_VAL;
     int iteration_count = 0;
+
+    MPI_Barrier(comm_cart.id);
 
     double t1 = MPI_Wtime();
     clock_t clock1 = clock();
 
     MPI_Request recv_requests[4], send_requests[4];
-    MPI_Status  recv_statuses[4], send_statuses[4];
+    MPI_Status send_statuses[4];
+
+    // Calculate the x and y ranges that the double for loop will operate upon.
+    //  NOTE: A negative rank means that the process has no neighbour at that specific side.
+    int wp_y_begin = ranks.north < 0 ? 1 : 2;
+    int wp_y_end   = ranks.south < 0 ? maxYCount-1 : maxYCount-2;
+    int wp_x_begin = ranks.west < 0  ? 1 : 2;
+    int wp_x_end   = ranks.east < 0  ? maxXCount-1 : maxXCount-2;
 
     while (iteration_count < max_iteration_count && error_global > max_acceptable_error)
     {
@@ -305,10 +277,11 @@ int main(int argc, char **argv)
 
         double error = 0.0;
 
-        // Calculate white points.
-        for (y = 2; y < (maxYCount-2); y++)
+        // Calculate all white points.
+        // Also calculate the green points on the sides that there are no neighbours.
+        for (int y = wp_y_begin; y < wp_y_end; y++)
         {
-            for (x = 2; x < (maxXCount-2); x++)
+            for (int x = wp_x_begin; x < wp_x_end; x++)
             {
                 update_val = UPDATE_VAL(x,y);
                 DST(x,y) = SRC(x,y) - omega*update_val;
@@ -316,65 +289,69 @@ int main(int argc, char **argv)
             }
         }
 
-        // Wait for all haloBoarder-halo points are received.
-        MPI_Waitall(4, recv_requests, recv_statuses);
-
-        // Calculate green points.
-        for (x = 1; x < maxXCount-1; x++)
+        // Calculate the green points on the sides that there are neighbours.
+        // The for loop's logic is the following:
+        //  1. Wait for any neighbour process to finish sending the data we need.
+        //  2. Calculate the appropriate green points based on the data we received.
+        //  3. If there are remaining neighbours that have not yet sent their data, then go to
+        //     step 1; otherwise this loop is completed.
+        for (int i = 1; i <= 4; i++)
         {
-            // Top row
-            y = 1;
-            update_val = UPDATE_VAL(x,y);
-            DST(x,y) = SRC(x,y) - omega*update_val;
-            error += update_val*update_val;
+            int index;
+            MPI_Status status;
 
-            // Bottom row
-            y = maxYCount - 2;
-            update_val = UPDATE_VAL(x,y);
-            DST(x,y) = SRC(x,y) - omega*update_val;
-            error += update_val*update_val;
+            MPI_Waitany(4, recv_requests, &index, &status);
+
+            if (status.MPI_SOURCE < 0)
+                continue;
+
+            bool flag = false;
+
+            if ((flag = status.MPI_SOURCE == ranks.north) || status.MPI_SOURCE == ranks.south)
+            {
+                int y = flag ? 1 : maxYCount-2; // Top or bottom row.
+                for (int x = 1; x < maxXCount-1; x++)
+                {
+                    update_val = UPDATE_VAL(x,y);
+                    DST(x,y) = SRC(x,y) - omega*update_val;
+                    error += update_val*update_val;
+                }
+            }
+            else if ((flag = status.MPI_SOURCE == ranks.west) || status.MPI_SOURCE == ranks.east)
+            {
+                int x = flag ? 1 : maxXCount-2; // Left or right column.
+                for (int y = 1; y < maxYCount-1; y++)
+                {
+                    update_val = UPDATE_VAL(x,y);
+                    DST(x,y) = SRC(x,y) - omega*update_val;
+                    error += update_val*update_val;
+                }
+            }
         }
-        for (y = 1; y < maxYCount-1; y++)
-        {
-            // Left column
-            x = 1;
-            update_val = UPDATE_VAL(x,y);
-            DST(x,y) = SRC(x,y) - omega*update_val;
-            error += update_val*update_val;
 
-            // Right column
-            x = maxXCount - 2;
-            update_val = UPDATE_VAL(x,y);
-            DST(x,y) = SRC(x,y) - omega*update_val;
-            error += update_val*update_val;
-        }
-
+        // Calculate the iteration's total error.
         double error_iteration_sum;
         MPI_Allreduce(&error, &error_iteration_sum, 1, MPI_DOUBLE, MPI_SUM, comm_cart.id);
-
-        MPI_Waitall(4, send_requests, send_statuses);
-
         error_global = sqrt(error_iteration_sum)/(n_global*m_global);
 
-        if (comm_cart.rank == 0)
-            printf("===============> %g\n", error_global);
+        //if (comm_cart.rank == 0)
+        //    printf("===============> %g\n", error_global);
 
-        //printf("\tError %g\n", error);
         iteration_count++;
-        // Swap the buffers
-        tmp = src;
-        src = dst;
-        dst = tmp;
-    }
 
-//    printf("AFTER LOOP: [%d/%d]\n", comm_cart.rank, comm_cart.size);
-    MPI_Barrier(comm_cart.id); // TODO: do we need this here?
+        // Swap the buffers
+        tmp = src; src = dst; dst = tmp;
+
+        MPI_Waitall(4, send_requests, send_statuses); // TODO: do we need this? Maybe not...
+    }
 
     double t2 = MPI_Wtime();
     clock_t clock2 = clock();
     clock_t msec = (clock2 - clock1) * 1000 / CLOCKS_PER_SEC;
-    printf("Rank %d: Iterations=%3d Elapsed MPI Wall time is %f\n", comm_cart.rank, iteration_count, t2 - t1);
-    printf("Rank %d: Time taken %ld seconds %ld milliseconds\n", comm_cart.rank, msec/1000, msec%1000);
+    printf("Rank %d: Iterations=%3d Elapsed MPI Wall time is %f\n",
+           comm_cart.rank, iteration_count, t2 - t1);
+    printf("Rank %d: Time taken %ld seconds %ld milliseconds\n",
+           comm_cart.rank, msec/1000, msec%1000);
 
     if (comm_cart.rank == 0)
     {
