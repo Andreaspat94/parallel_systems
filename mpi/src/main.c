@@ -41,23 +41,6 @@
 #include "common/read_input.h"
 #include "common/allocate_grid.h"
 
-/**
- * Changes:
- *
- * - Require that NP is either 80 or a perfect square.
- *
- * - Read problem parameters from input file instead of have them hardcoded.
- *      use a custom struct "bcast_input_t" just for faster sharing of these values.
- *
- * - Introduce "comm_t" struct to encapsulate the 3 related variables (i.e. MPI_Comm, size, rank).
- *
- * - MPI_Cart_shift(comm, 1, 1, &south, &north); => changed to first "north" then "south".
- *
- * - Each process should work on a sub-grid of [-1,1]x[-1,1].
- *
- * - Some fixes in indexing in MPI_Irecv's and MPI_Isend's.
- */
-
 typedef struct {
     int n;
     int m;
