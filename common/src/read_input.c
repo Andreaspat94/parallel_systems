@@ -27,6 +27,6 @@ void read_input(
 
     if (also_print_it == true)
     {
-        printf("-> %d, %d, %g, %g, %g, %d\n", *n, *m, *alpha, *relax, *tol, *mits);
+        printf("<- %d, %d, %g, %g, %g, %d\n", *n, *m, *alpha, *relax, *tol, *mits);
     }
 }

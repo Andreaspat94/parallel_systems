@@ -37,6 +37,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include <mpi.h>
+#include <string.h>
 #include "common/read_input.h"
 #include "common/allocate_grid.h"
 
@@ -87,10 +88,20 @@ bool is_perfect_square(int number)
 
 int main(int argc, char **argv)
 {
+    bool print_all_process_times = false;
+
+    for (int i = 1; i < argc; i++)
+    {
+        if (!strcmp("--all-process-times", argv[i]))
+        {
+            print_all_process_times = true;
+        }
+    }
+
     ////////////////////////////////////////////////////////////////////////////////////////////////
     /// Initialize MPI and collect MPI_COMM_WORLD-related info.
 
-    MPI_Init(NULL,NULL);
+    MPI_Init(NULL, NULL);
 
     comm_t comm_world = { MPI_COMM_WORLD };
     MPI_Comm_size(comm_world.id, &comm_world.size);
@@ -347,15 +358,35 @@ int main(int argc, char **argv)
 
     double t2 = MPI_Wtime();
     clock_t clock2 = clock();
-    clock_t msec = (clock2 - clock1) * 1000 / CLOCKS_PER_SEC;
-    printf("Rank %d: Iterations=%3d Elapsed MPI Wall time is %f\n",
-           comm_cart.rank, iteration_count, t2 - t1);
-    printf("Rank %d: Time taken %ld seconds %ld milliseconds\n",
-           comm_cart.rank, msec/1000, msec%1000);
+
+    double wtime_dt = t2 - t1;
+    clock_t clock_dt = (clock2 - clock1) * 1000 / CLOCKS_PER_SEC;
+
+    free(fX);
+    free(fY);
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+    /// Print results.
 
     if (comm_cart.rank == 0)
     {
-        printf("Residual %g\n", error_global);
+        printf("-> Residual %g\n", error_global);
+    }
+
+    if (print_all_process_times)
+    {
+        printf("-> [rank=%2d] Iterations: %2d, MPI_Wtime: %f secs, clock: %ld.%03ld secs\n",
+               comm_cart.rank, iteration_count, wtime_dt, clock_dt/1000, clock_dt%1000);
+    }
+    else
+    {
+        double wtime_dt_max;
+        MPI_Reduce(&wtime_dt, &wtime_dt_max, 1, MPI_DOUBLE, MPI_MAX, 0, comm_cart.id);
+        if (comm_cart.rank == 0)
+        {
+            printf("-> Iterations: %2d, MPI_Wtime: %f secs, clock: %ld.%03ld secs\n",
+                   iteration_count, wtime_dt, clock_dt/1000, clock_dt%1000);
+        }
     }
 
     MPI_Type_free(&row);
@@ -375,10 +406,10 @@ int main(int argc, char **argv)
 //        printf("The error of the iterative solution is %g\n", absoluteError);
 //    }
 
-    MPI_Finalize();
+    free(u);
+    free(u_old);
 
-    free(fX);
-    free(fY);
+    MPI_Finalize();
 
     return 0;
 }
