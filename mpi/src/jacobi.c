@@ -162,12 +162,6 @@ int main(int argc, char **argv)
     MPI_Cart_shift(comm_cart.id, 1, 1, &ranks.north, &ranks.south);
 
     ////////////////////////////////////////////////////////////////////////////////////////////////
-    /// Calculate local grid size.
-
-    int n = n_global / dims[0]; // Local row size (i.e. number of columns).
-    int m = m_global / dims[1]; // Local column size (i.e. number of rows).
-
-    ////////////////////////////////////////////////////////////////////////////////////////////////
     ////////////////////////////////////////////////////////////////////////////////////////////////
     {
         MPI_Comm comm = comm_cart.id;
@@ -202,34 +196,19 @@ int main(int argc, char **argv)
     ////////////////////////////////////////////////////////////////////////////////////////////////
 
     ////////////////////////////////////////////////////////////////////////////////////////////////
-    /// Calculate which rectangular parts of [-1,1]x[-1,1] will be assigned to each process.
-
-    // Calculate the part of [-1, 1] that will be assigned to this process.
-    double xSlice = 2.0 / dims[0];  // 2 is the distance between -1 and 1.
-    double xLeft  = -1.0 + xSlice * coords[0];
-    double xRight = xLeft + xSlice;
-
-    double xStart = xLeft;
-    double deltaX = 2.0/(n_global-1);
-    int maxXCount = n + 2;
-
-    // Calculate the part of transpose([-1, 1]) that will be assigned to this process.
-    double ySlice  = 2.0 / dims[1]; // 2 is the distance between -1 and 1.
-    double yBottom = -1.0 + ySlice * coords[1];
-    double yUp     = yBottom + ySlice;
-
-    double yStart = yBottom;
-    double deltaY = 2.0/(m_global-1);
-    int maxYCount = m + 2;
-
-    printf("[%d/%d]: dx=%f dy=%f xs=%f ys=%f\n", comm_cart.rank, comm_cart.size, deltaX, deltaY, xStart, yStart);
-
-    ////////////////////////////////////////////////////////////////////////////////////////////////
     /// Create the grids "u" and "u_old" and relevant MPI datatypes for managing their rows and
     /// columns.
 
+    // (n x m) is the per-process size of its data sub-grid.
+    int n = n_global / dims[0];
+    int m = m_global / dims[1];
+
+    // (maxXCount x maxYCount) is the per-process size of its data sub-grid including the halos.
+    int maxXCount = n + 2;
+    int maxYCount = m + 2;
+
     double *u, *u_old;
-    allocate_grid(n, m, &u, &u_old);
+    allocate_grid(maxXCount, maxYCount, &u, &u_old);
 
     MPI_Datatype row;
     MPI_Type_contiguous(n, MPI_DOUBLE, &row);
@@ -238,6 +217,18 @@ int main(int argc, char **argv)
     MPI_Datatype column;
     MPI_Type_vector(m, 1, maxXCount, MPI_DOUBLE, &column);
     MPI_Type_commit(&column);
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+    /// Solve in [-1, 1] x [-1, 1].
+
+    double xLeft   = -1.0, xRight = 1.0;
+    double yBottom = -1.0,    yUp = 1.0;
+
+    double xStart = xLeft;
+    double yStart = yBottom;
+
+    double deltaX = (xRight-xLeft)/(n_global-1);
+    double deltaY = (yUp-yBottom)/(m_global-1);
 
     ////////////////////////////////////////////////////////////////////////////////////////////////
     /// Make any jacobi-iteration precalculations.
@@ -256,7 +247,7 @@ int main(int argc, char **argv)
         if (fX == NULL || fY == NULL)
         {
             fprintf(stderr, "Could not allocate memory for precalculations.");
-            exit(1);
+            MPI_Abort(comm_cart.id, 1);
         }
 
         for (int x = 0; x < n; x++)
