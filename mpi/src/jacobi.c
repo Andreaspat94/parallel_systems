@@ -302,18 +302,14 @@ int main(int argc, char **argv)
         MPI_Isend(&SRC(1, 1),           1, column, ranks.west,  0, comm_cart.id, &send_requests[2]);
         MPI_Isend(&SRC(maxXCount-2, 1), 1, column, ranks.east,  0, comm_cart.id, &send_requests[3]);
 
-
-        MPI_Waitall(4, recv_requests, recv_statuses);
-        MPI_Waitall(4, send_requests, send_statuses);
-
         double error = 0.0;
 
         /** This double for loop is for white points calculations
          * Changed x and y initiate values (from 1 to 2) for white point calculations
          */
-        for (y = 1; y < (maxYCount-1); y++)
+        for (y = 2; y < (maxYCount-2); y++)
         {
-            for (x = 1; x < (maxXCount-1); x++)
+            for (x = 2; x < (maxXCount-2); x++)
             {
             updateVal = (	(SRC(x-1,y) + SRC(x+1,y))*cx +
                              (SRC(x,y-1) + SRC(x,y+1))*cy +
@@ -323,6 +319,65 @@ int main(int argc, char **argv)
             DST(x,y) = SRC(x,y) - omega*updateVal;
             error += updateVal*updateVal;
             }
+        }
+
+        MPI_Waitall(4, recv_requests, recv_statuses);
+        MPI_Waitall(4, send_requests, send_statuses);
+        /**
+         * Boarder-halo points are received.
+         * Calculations for green points are now made.
+         * */
+
+        // Top row
+        y = 1;
+        for (x = 1; x < maxXCount-1; x++)
+        {
+            updateVal = (	(SRC(x-1,y) + SRC(x+1,y))*cx +
+                             (SRC(x,y-1) + SRC(x,y+1))*cy +
+                             SRC(x,y)*cc
+                             -(-alpha*(1.0-fX[x]*fX[x])*(1.0-fY[y]*fY[y]) - 2.0*(1.0-fX[x]*fX[x]) - 2.0*(1.0-fY[y]*fY[y])))
+                        /cc;
+            DST(x,y) = SRC(x,y) - omega*updateVal;
+            error += updateVal*updateVal;
+        }
+
+        // Bottom row
+        y = maxYCount - 2;
+        for (x = 1; x < maxXCount-1; x++)
+        {
+            updateVal = (	(SRC(x-1,y) + SRC(x+1,y))*cx +
+                             (SRC(x,y-1) + SRC(x,y+1))*cy +
+                             SRC(x,y)*cc
+                             -(-alpha*(1.0-fX[x]*fX[x])*(1.0-fY[y]*fY[y]) - 2.0*(1.0-fX[x]*fX[x]) - 2.0*(1.0-fY[y]*fY[y])))
+                        /cc;
+            DST(x,y) = SRC(x,y) - omega*updateVal;
+            error += updateVal*updateVal;
+        }
+
+        // Left column
+        x = 1;
+        for (y = 1; y < maxYCount-1; y++)
+        {
+            updateVal = (	(SRC(x-1,y) + SRC(x+1,y))*cx +
+                             (SRC(x,y-1) + SRC(x,y+1))*cy +
+                             SRC(x,y)*cc
+                             -(-alpha*(1.0-fX[x]*fX[x])*(1.0-fY[y]*fY[y]) - 2.0*(1.0-fX[x]*fX[x]) - 2.0*(1.0-fY[y]*fY[y])))
+                        /cc;
+            DST(x,y) = SRC(x,y) - omega*updateVal;
+            error += updateVal*updateVal;
+        }
+
+        // Right column
+        x = maxXCount - 2;
+        for (y = 1; y < maxYCount-1; y++)
+        {
+            updateVal = (	(SRC(x-1,y) + SRC(x+1,y))*cx +
+                             (SRC(x,y-1) + SRC(x,y+1))*cy +
+                             SRC(x,y)*cc
+                             -(-alpha*(1.0-fX[x]*fX[x])*(1.0-fY[y]*fY[y]) - 2.0*(1.0-fX[x]*fX[x]) - 2.0*(1.0-fY[y]*fY[y])))
+                        /cc;
+            DST(x,y) = SRC(x,y) - omega*updateVal;
+            error += updateVal*updateVal;
         }
 
         double error_iteration_sum;
@@ -352,7 +407,7 @@ int main(int argc, char **argv)
 
     if (comm_cart.rank == 0)
     {
-        printf("Residual %.20g\n", error_global);
+        printf("Residual %g\n", error_global);
     }
 
     MPI_Type_free(&row);
