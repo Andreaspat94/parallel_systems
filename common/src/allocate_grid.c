@@ -2,9 +2,9 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-void allocate_grid(int n, int m, double **u, double **u_old)
+void allocate_grid(int maxXCount, int maxYCount, double **u, double **u_old)
 {
-    int allocCount = (n+2)*(m+2);
+    int allocCount = maxXCount * maxYCount;
 
     // Those two calls also zero the boundary elements
     *u     = (double*)calloc(allocCount, sizeof(double)); //reverse order
@@ -14,7 +14,7 @@ void allocate_grid(int n, int m, double **u, double **u_old)
 
     if (u == NULL || u_old == NULL)
     {
-        printf("Not enough memory for two %ix%i matrices\n", n+2, m+2);
+        printf("Not enough memory for two %ix%i matrices\n", maxXCount, maxYCount);
         exit(1);
     }
 }
