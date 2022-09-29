@@ -38,7 +38,9 @@
 #include <time.h>
 #include <mpi.h>
 #include <string.h>
-#include "common/read_input.h"
+#include "common/input.h"
+#include "common/prints.h"
+#include "common/timing.h"
 #include "common/allocate_grid.h"
 #include "common/check_solution.h"
 #include "precalculations_t.h"
@@ -53,11 +55,24 @@
 
 int main(int argc, char **argv)
 {
-    int n, m;
-    double alpha, relax;
-    double maxAcceptableError;
-    int maxIterationCount;
-    read_input(&n, &m, &alpha, &relax, &maxAcceptableError, &maxIterationCount, true);
+    int rank;
+    MPI_Init(NULL,NULL);
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+
+    input_t input;
+    input_read_parallel(&input, rank, MPI_COMM_WORLD);
+
+    if (rank == 0)
+        print_input(&input);
+
+    int n = input.n;
+    int m = input.m;
+    double alpha = input.alpha;
+    double relax = input.relax;
+    double max_acceptable_error = input.max_acceptable_error;
+    int max_iteration_count = input.max_iteration_count;
 
     // Solve in [-1, 1] x [-1, 1]
     double xLeft = -1.0, xRight = 1.0;
@@ -140,15 +155,14 @@ int main(int argc, char **argv)
         xLeft, yBottom, n+2, m+2, u_old, u, deltaX, deltaY, alpha, relax
     };
 
-    int iterationCount = 0;
+    int iteration_count = 0;
     double error = HUGE_VAL;
 
-    clock_t clock1 = clock();
-    MPI_Init(NULL,NULL);
-    double t1 = MPI_Wtime();
+    times_t times;
+    times_begin(&times);
 
     // Iterate as long as it takes to meet the convergence criterion.
-    while (iterationCount < maxIterationCount && error > maxAcceptableError)
+    while (iteration_count < max_iteration_count && error > max_acceptable_error)
     {
         // printf("Iteration %i", iterationCount);
 
@@ -158,30 +172,22 @@ int main(int argc, char **argv)
 
         swap_buffers(&jacobi_iteration_params);
 
-        iterationCount++;
+        iteration_count++;
     }
 
-    double t2 = MPI_Wtime();
-    MPI_Finalize();
-    clock_t clock2 = clock();
-    clock_t msec = (clock2 - clock1) * 1000 / CLOCKS_PER_SEC;
-
-    printf("-> Iterations: %2d, MPI_Wtime: %f secs, clock: %ld.%03ld secs\n",
-           iterationCount, t2-t1, msec/1000, msec%1000);
-
-    printf("-> Residual: %g\n",error);
+    times_end(&times);
+    times_reduce_max(&times, 0, MPI_COMM_WORLD);
 
     free(precalculations.f);
     precalculations.f = NULL;
 
-    // u_old holds the solution after the most recent buffers swap.
-    double absoluteError = check_solution(
-        xLeft, yBottom,
-        n+2, m+2,
-        u_old,
-        deltaX, deltaY);
+    // "u_old" holds the solution after the most recent buffers swap.
+    double absolute_error = check_solution(xLeft, yBottom, n+2, m+2, u_old, deltaX, deltaY);
 
-    printf("-> Iterative solution error: %g\n", absoluteError);
+    if (rank == 0)
+        print_output(iteration_count, &times, error, absolute_error);
+
+    MPI_Finalize();
 
     return 0;
 }

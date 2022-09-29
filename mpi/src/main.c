@@ -35,20 +35,12 @@
 #include <stdio.h>
 #include <math.h>
 #include <stdlib.h>
-#include <time.h>
 #include <mpi.h>
-#include <string.h>
-#include "common/read_input.h"
+#include <stdbool.h>
+#include "common/input.h"
+#include "common/prints.h"
+#include "common/timing.h"
 #include "common/allocate_grid.h"
-
-typedef struct {
-    int n;
-    int m;
-    double alpha;
-    double relax;
-    double max_acceptable_error;
-    int max_iteration_count;
-} bcast_input_t;
 
 typedef struct {
     MPI_Comm id;
@@ -71,16 +63,6 @@ bool is_perfect_square(int number)
 
 int main(int argc, char **argv)
 {
-    bool print_all_process_times = false;
-
-    for (int i = 1; i < argc; i++)
-    {
-        if (!strcmp("--all-process-times", argv[i]))
-        {
-            print_all_process_times = true;
-        }
-    }
-
     ////////////////////////////////////////////////////////////////////////////////////////////////
     /// Initialize MPI and collect MPI_COMM_WORLD-related info.
 
@@ -99,27 +81,18 @@ int main(int argc, char **argv)
     ////////////////////////////////////////////////////////////////////////////////////////////////
     /// Read input values from stdin (only main process) and broadcast them to all processes.
 
-    int n_global, m_global;
-    double alpha, omega;
-    double max_acceptable_error;
-    int max_iteration_count;
-
-    bcast_input_t input;
+    input_t input;
+    input_read_parallel(&input, comm_world.rank, comm_world.id);
 
     if (comm_world.rank == 0)
-    {
-        read_input(&input.n, &input.m, &input.alpha, &input.relax,
-                   &input.max_acceptable_error, &input.max_iteration_count, true);
-    }
+        print_input(&input);
 
-    MPI_Bcast(&input, sizeof(bcast_input_t), MPI_BYTE, 0, comm_world.id);
-
-    n_global = input.n;
-    m_global = input.m;
-    alpha = input.alpha;
-    omega = input.relax;
-    max_acceptable_error = input.max_acceptable_error;
-    max_iteration_count = input.max_iteration_count;
+    int n_global = input.n;
+    int m_global = input.m;
+    double alpha = input.alpha;
+    double omega = input.relax;
+    double max_acceptable_error = input.max_acceptable_error;
+    int max_iteration_count = input.max_iteration_count;
 
     ////////////////////////////////////////////////////////////////////////////////////////////////
     /// Create a cartesian topology with reordered process ranks and retrieve the per-process
@@ -227,8 +200,8 @@ int main(int argc, char **argv)
 
     MPI_Barrier(comm_cart.id);
 
-    double t1 = MPI_Wtime();
-    clock_t clock1 = clock();
+    times_t times;
+    times_begin(&times);
 
     MPI_Request recv_requests[4], send_requests[4];
     MPI_Status send_statuses[4];
@@ -339,59 +312,27 @@ int main(int argc, char **argv)
         MPI_Waitall(4, send_requests, send_statuses); // TODO: do we need this? Maybe not...
     }
 
-    double t2 = MPI_Wtime();
-    clock_t clock2 = clock();
-
-    double wtime_dt = t2 - t1;
-    clock_t clock_dt = (clock2 - clock1) * 1000 / CLOCKS_PER_SEC;
+    times_end(&times);
+    times_reduce_max(&times, 0, comm_cart.id);
 
     free(fX);
     free(fY);
-
-    ////////////////////////////////////////////////////////////////////////////////////////////////
-    /// Print results.
-
-    if (comm_cart.rank == 0)
-    {
-        printf("-> Residual %g\n", error_global);
-    }
-
-    if (print_all_process_times)
-    {
-        printf("-> [rank=%2d] Iterations: %2d, MPI_Wtime: %f secs, clock: %ld.%03ld secs\n",
-               comm_cart.rank, iteration_count, wtime_dt, clock_dt/1000, clock_dt%1000);
-    }
-    else
-    {
-        double wtime_dt_max;
-        MPI_Reduce(&wtime_dt, &wtime_dt_max, 1, MPI_DOUBLE, MPI_MAX, 0, comm_cart.id);
-        if (comm_cart.rank == 0)
-        {
-            printf("-> Iterations: %2d, MPI_Wtime: %f secs, clock: %ld.%03ld secs\n",
-                   iteration_count, wtime_dt, clock_dt/1000, clock_dt%1000);
-        }
-    }
-
+    free(u);
     MPI_Type_free(&row);
     MPI_Type_free(&column);
-    MPI_Comm_free(&comm_cart.id);
 
     // TODO: also parallelize check_solution?
 //    // u_old holds the solution after the most recent buffers swap
-//    double absoluteError = check_solution(xLeft, yBottom,
+//    double absolute_error = check_solution(xLeft, yBottom,
 //                                          n_global+2, m_global+2,
 //                                          u_old,
 //                                          deltaX, deltaY);
-//
-//    if (comm_world.rank == 0) {
-//        //total error: Propably the less this value is the more accurate our solution is
-//        printf("Residual %g\n", totalError);
-//        printf("The error of the iterative solution is %g\n", absoluteError);
-//    }
 
-    free(u);
+    if (comm_cart.rank == 0)
+        print_output(iteration_count, &times, error_global, 0.0); // TODO: replace "0.0" with absolute_error
+
     free(u_old);
-
+    MPI_Comm_free(&comm_cart.id);
     MPI_Finalize();
 
     return 0;
