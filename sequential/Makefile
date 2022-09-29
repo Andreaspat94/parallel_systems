@@ -5,9 +5,12 @@
 # 2) $ make run-release size=1680
 #	Will run the release executable with problem size 1680.
 
-size ?= 840	# Problem size.
-np ?= 1		# Number of processes when using the "qsub-*" targets.
-opt ?= 0	# Optimization to use. Valid values: {0,1,1x,2,2x,3,3x}.
+# Problem size.
+size ?= 840
+# Number of processes when using the "qsub-*" targets.
+np ?= 1
+# Optimization to use. Valid values: {0,1,1x,2,2x,3,3x}.
+opt ?= 0
 
 COMMON_SOURCES := $(shell find ../common/src/ -name "*.c")
 THIS_SOURCES := $(shell find ./src/ -name "*.c")

@@ -5,8 +5,10 @@
 # 2) $ make run-release size=1680 np=8
 #	Will run the release executable with problem size 1680 and # of processes 8.
 
-size ?= 840	# Problem size.
-np ?= 4		# Number of processes when using the "qsub-*" targets.
+# Problem size.
+size ?= 840
+# Number of processes when using the "qsub-*" targets.
+np ?= 4
 
 COMMON_SOURCES := $(shell find ../common/src/ -name "*.c")
 THIS_SOURCES := $(shell find ./src/ -name "*.c")
