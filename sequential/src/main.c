@@ -165,10 +165,11 @@ int main(int argc, char **argv)
     MPI_Finalize();
     clock_t clock2 = clock();
     clock_t msec = (clock2 - clock1) * 1000 / CLOCKS_PER_SEC;
-    printf("Iterations=%3d Elapsed MPI Wall time is %f\n", iterationCount, t2 - t1);
-    printf("Time taken %ld seconds %ld milliseconds\n", msec/1000, msec%1000);
 
-    printf("Residual %g\n",error);
+    printf("-> Iterations: %2d, MPI_Wtime: %f secs, clock: %ld.%03ld secs\n",
+           iterationCount, t2-t1, msec/1000, msec%1000);
+
+    printf("-> Residual: %g\n",error);
 
     free(precalculations.f);
     precalculations.f = NULL;
@@ -180,7 +181,7 @@ int main(int argc, char **argv)
         u_old,
         deltaX, deltaY);
 
-    printf("The error of the iterative solution is %g\n", absoluteError);
+    printf("-> Iterative solution error: %g\n", absoluteError);
 
     return 0;
 }
