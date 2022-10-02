@@ -39,8 +39,8 @@
 #include <stdbool.h>
 #include "common/input.h"
 #include "common/prints.h"
-#include "common/timing.h"
 #include "common/allocate_grid.h"
+#include "common/check_solution.h"
 
 typedef struct {
     MPI_Comm id;
@@ -127,6 +127,9 @@ int main(int argc, char **argv)
     MPI_Cart_shift(comm_cart.id, 0, 1, &ranks.west,  &ranks.east);
     MPI_Cart_shift(comm_cart.id, 1, 1, &ranks.north, &ranks.south);
 
+//    printf("comm size: %d\n", comm_cart.size);
+//    printf("rank= %d coords= %d %d, neighbors(north= %d, south= %d, west= %d, east= %d)\n",
+//           comm_cart.rank, coords[0], coords[1], ranks.north, ranks.south, ranks.west, ranks.east);
     ////////////////////////////////////////////////////////////////////////////////////////////////
     /// Create the grids "u" and "u_old" and relevant MPI datatypes for managing their rows and
     /// columns.
@@ -229,7 +232,7 @@ int main(int argc, char **argv)
         MPI_Irecv(&SRC(0, 1),           1, column, ranks.west,  0, comm_cart.id, &recv_requests[2]);
         MPI_Irecv(&SRC(maxXCount-1, 1), 1, column, ranks.east,  0, comm_cart.id, &recv_requests[3]);
 
-        // Send my border lines and columns to neighbours.
+        // Send my boarder lines and columns to neighbours.
         MPI_Isend(&SRC(1, 1),           1, row,    ranks.north, 0, comm_cart.id, &send_requests[0]);
         MPI_Isend(&SRC(1, maxYCount-2), 1, row,    ranks.south, 0, comm_cart.id, &send_requests[1]);
         MPI_Isend(&SRC(1, 1),           1, column, ranks.west,  0, comm_cart.id, &send_requests[2]);
@@ -317,12 +320,16 @@ int main(int argc, char **argv)
 
     free(fX);
     free(fY);
-    free(u);
     MPI_Type_free(&row);
     MPI_Type_free(&column);
 
     // TODO: also parallelize check_solution?
-//    // u_old holds the solution after the most recent buffers swap
+    /**
+     * Re-activating this function gave me the following error: "mpi:17290 terminated with signal 11".
+     * This was solved by moving "free(u)" function below.
+     */
+    // u_old holds the solution after the most recent buffers swap
+    printf("Rank: %d is ready to call check_solution\n", comm_cart.rank);
 //    double absolute_error = check_solution(xLeft, yBottom,
 //                                          n_global+2, m_global+2,
 //                                          u_old,
@@ -332,6 +339,7 @@ int main(int argc, char **argv)
         print_output(iteration_count, &times, error_global, 0.0); // TODO: replace "0.0" with absolute_error
 
     free(u_old);
+    free(u);
     MPI_Comm_free(&comm_cart.id);
     MPI_Finalize();
 
