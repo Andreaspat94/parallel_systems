@@ -1,9 +1,10 @@
-import matplotlib.pyplot as plt
 import csv
+import matplotlib.pyplot as plt
+import numpy
 
 plotLines = {}
 
-with open('sequential_optimizations_performance_2022_10_02_13_59_31.csv', 'r') as csvfile:
+with open('sequential_optimizations_performance_2022_10_02_15_47_09.csv', 'r') as csvfile:
     csvLines = csv.reader(csvfile, delimiter=',')
     next(csvLines)
     for row in csvLines:
@@ -13,12 +14,25 @@ with open('sequential_optimizations_performance_2022_10_02_13_59_31.csv', 'r') a
 
         if opt not in plotLines:
             plotLines[opt] = {'x': [], 'y': []}
-        plotLines[opt]['x'].append(np)
-        plotLines[opt]['y'].append(time_mpi)
+        try:
+            i = plotLines[opt]['x'].index(np)
+            plotLines[opt]['y'][i].append(time_mpi)
+        except ValueError:
+            plotLines[opt]['x'].append(np)
+            plotLines[opt]['y'].append([time_mpi])
 
-for opt, xy in plotLines.items():
-    opt = "-0" + opt
-    plt.plot(xy['x'], xy['y'], marker='o', label=opt)
+fig, ax = plt.subplots()
+for key, value in plotLines.items():
+    opt = "-0" + key
+    x = value['x']
+
+    y = value['y']
+    y = [min(ys) for ys in y]   # min(ys), max(ys), numpy.average(ys)
+    yerr = [
+        [y[i]-min(ys) for i, ys in enumerate(value['y'])],
+        [max(ys)-y[i] for i, ys in enumerate(value['y'])],
+    ]
+    ax.errorbar(x, y, yerr=yerr, marker='o', label=opt, capsize=6, capthick=3)
 
 plt.xlabel('Number of busy cores in a single node')
 plt.ylabel('Performance (in seconds)')

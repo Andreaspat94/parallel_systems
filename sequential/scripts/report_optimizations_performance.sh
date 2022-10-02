@@ -14,6 +14,7 @@ echo `$common_scripts_path/csv_create_header_row.sh`",out_np,out_opt" > "$report
 
 for np in {1..8}; do
 for opt in 0 1 1x 2 2x 3 3x; do
+for i in {1..3}; do
 
     # Create new qsub job.
     print_green "make --no-print-directory x np=$np opt=$opt"
@@ -34,5 +35,5 @@ for opt in 0 1 1x 2 2x 3 3x; do
     sleep 2
 done
 done
-
+done
 
