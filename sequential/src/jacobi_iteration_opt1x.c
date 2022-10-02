@@ -85,7 +85,6 @@ double jacobi_iteration_opt1x(
             int _x = x_offset + x;
             const double *_src = src + _x;
             double fX = _f[x-1];
-            // TODO: ???
             double fv = alpha_plus_2*(fX*fX + fY*fY) - alpha*fX*fX*fY*fY - alpha_plus_4;
 
             updateVal = (

@@ -329,7 +329,6 @@ int main(int argc, char **argv)
      * This was solved by moving "free(u)" function below.
      */
     // u_old holds the solution after the most recent buffers swap
-    printf("Rank: %d is ready to call check_solution\n", comm_cart.rank);
 //    double absolute_error = check_solution(xLeft, yBottom,
 //                                          n_global+2, m_global+2,
 //                                          u_old,

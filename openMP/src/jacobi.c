@@ -221,7 +221,9 @@ int main(int argc, char **argv)
     int wp_x_begin = ranks.west < 0  ? 1 : 2;
     int wp_x_end   = ranks.east < 0  ? maxXCount-1 : maxXCount-2;
     double error;
-        while (iteration_count < max_iteration_count && error_global > max_acceptable_error)
+    omp_set_num_threads(2);
+
+    while (iteration_count < max_iteration_count && error_global > max_acceptable_error)
         {
             // These two macros translate the 2-D index (XX, YY) to the 1-dimensional array:
 #define SRC(XX,YY) src[(YY)*maxXCount+(XX)]
@@ -236,8 +238,9 @@ int main(int argc, char **argv)
             // NOTE: u(0,*), u(maxXCount-1,*), u(*,0) and u(*,maxYCount-1) are BOUNDARIES and therefore
             // not part of the solution. Take a look at this:
             // http://etutorials.org/Linux+systems/cluster+computing+with+linux/Part+II+Parallel+Programming/Chapter+9+Advanced+Topics+in+MPI+Programming/9.3+Revisiting+Mesh+Exchanges/
-#pragma omp parallel num_threads(2)
-            {
+
+//                if (comm_cart.rank ==0)
+//                    printf("number of ranks: %d\nnumber of threads: %d\n", comm_cart.size, omp_get_num_threads());
                 // this specifies that the block is exectuted by only one of the threads in the team
                 #pragma omp single
                 {
@@ -272,8 +275,7 @@ int main(int argc, char **argv)
                         }
                     }
                 };
-            //end of pragma omp parallel
-            }
+
 
             // Calculate the green points on the sides that there are neighbours.
             // The for loop's logic is the following:
@@ -330,8 +332,7 @@ int main(int argc, char **argv)
 
             MPI_Waitall(4, send_requests, send_statuses); // TODO: do we need this? Maybe not...
     // end of while
-    }
-
+}
     times_end(&times);
     times_reduce_max(&times, 0, comm_cart.id);
 
