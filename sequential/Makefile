@@ -62,6 +62,10 @@ qsub-release: .prepare-qsub
 show-latest-qsub-info:
 	@../common/scripts/show_qsub_job_info.sh || true
 
+report-optimizations-performance: compile-all
+	@mkdir -p ./argo/reports &&\
+	./scripts/report_optimizations_performance.sh
+
 clean-bin:
 	rm -f ./argo/bin/*
 clean-inputs:
