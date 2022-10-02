@@ -26,7 +26,7 @@ for opt in 0 1 1x 2 2x 3 3x; do
 
     # Add CSV data row.
     job_output_file="./argo/outputs/$job_id.OU"
-    csv_data_row=`$common_scripts_path/csv_create_data_row.sh < "$job_output_file"`"$np,$opt"
+    csv_data_row=`$common_scripts_path/csv_create_data_row.sh < "$job_output_file"`",$np,$opt"
     print_green "$csv_data_row"
     echo "$csv_data_row" >> "$report_output_file"
 
