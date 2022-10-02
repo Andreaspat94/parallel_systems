@@ -41,6 +41,7 @@
 #include "common/prints.h"
 #include "common/timing.h"
 #include "common/allocate_grid.h"
+#include "common/check_solution.h"
 
 typedef struct {
     MPI_Comm id;
@@ -196,6 +197,7 @@ int main(int argc, char **argv)
     double *tmp;
     double update_val;
     double error_global = HUGE_VAL;
+    double absolute_error_global;
     int iteration_count = 0;
 
     MPI_Barrier(comm_cart.id);
@@ -317,19 +319,21 @@ int main(int argc, char **argv)
 
     free(fX);
     free(fY);
-    free(u);
     MPI_Type_free(&row);
     MPI_Type_free(&column);
 
-    // TODO: also parallelize check_solution?
-//    // u_old holds the solution after the most recent buffers swap
-//    double absolute_error = check_solution(xLeft, yBottom,
-//                                          n_global+2, m_global+2,
-//                                          u_old,
-//                                          deltaX, deltaY);
+    // u_old holds the solution after the most recent buffers swap
+    double absolute_error = check_solution(xLeft, yBottom,
+                                          n_global+2, m_global+2,
+                                          u_old,
+                                          deltaX, deltaY);
+
+    double absolute_error_sum;
+    MPI_Allreduce(&absolute_error, &absolute_error_sum, 1, MPI_DOUBLE, MPI_SUM, comm_cart.id);
+    absolute_error_global = sqrt(absolute_error_sum)/((maxXCount-2)*(maxYCount-2));
 
     if (comm_cart.rank == 0)
-        print_output(iteration_count, &times, error_global, 0.0); // TODO: replace "0.0" with absolute_error
+        print_output(iteration_count, &times, error_global, absolute_error_global);
 
     free(u_old);
     MPI_Comm_free(&comm_cart.id);

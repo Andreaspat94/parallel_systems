@@ -1,5 +1,4 @@
 #include "../include/common/check_solution.h"
-#include <math.h>
 
 #define U(XX,YY) u[(YY)*maxXCount+(XX)]
 
@@ -24,6 +23,5 @@ double check_solution(
             error += localError*localError;
         }
     }
-
-    return sqrt(error)/((maxXCount-2)*(maxYCount-2));
+    return error;
 }
