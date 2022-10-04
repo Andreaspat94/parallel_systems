@@ -157,11 +157,11 @@ int main(int argc, char **argv)
     double xLeft   = -1.0, xRight = 1.0;
     double yBottom = -1.0,    yUp = 1.0;
 
-    double xStart = xLeft;
-    double yStart = yBottom;
-
     double deltaX = (xRight-xLeft)/(n_global-1);
     double deltaY = (yUp-yBottom)/(m_global-1);
+
+    double xStart = xLeft + coords[0]*n*deltaX;
+    double yStart = yBottom + coords[1]*m*deltaY;
 
     ////////////////////////////////////////////////////////////////////////////////////////////////
     /// Make any jacobi-iteration precalculations.
@@ -182,11 +182,11 @@ int main(int argc, char **argv)
 
     for (int x = 0; x < n; x++)
     {
-        fX[x+1] = xStart + (coords[0]*n + x)*deltaX;
+        fX[x+1] = xStart + x*deltaX;
     }
     for (int y = 0; y < m; y++)
     {
-        fY[y+1] = yStart + (coords[1]*m + y)*deltaY;
+        fY[y+1] = yStart + y*deltaY;
     }
 
     ////////////////////////////////////////////////////////////////////////////////////////////////
@@ -197,7 +197,6 @@ int main(int argc, char **argv)
     double *tmp;
     double update_val;
     double error_global = HUGE_VAL;
-    double absolute_error_global;
     int iteration_count = 0;
 
     MPI_Barrier(comm_cart.id);
@@ -322,15 +321,15 @@ int main(int argc, char **argv)
     MPI_Type_free(&row);
     MPI_Type_free(&column);
 
-    // u_old holds the solution after the most recent buffers swap
-    double absolute_error = check_solution(xLeft, yBottom,
-                                          n_global+2, m_global+2,
-                                          u_old,
-                                          deltaX, deltaY);
-
-    double absolute_error_sum;
-    MPI_Allreduce(&absolute_error, &absolute_error_sum, 1, MPI_DOUBLE, MPI_SUM, comm_cart.id);
-    absolute_error_global = sqrt(absolute_error_sum)/((maxXCount-2)*(maxYCount-2));
+    // "src" holds the solution after the most recent buffers swap
+    double absolute_error = check_solution(
+        xStart, yStart,
+        maxXCount, maxYCount,
+        src,
+        deltaX, deltaY);
+    double absolute_error_global;
+    MPI_Reduce(&absolute_error, &absolute_error_global, 1, MPI_DOUBLE, MPI_SUM, 0, comm_cart.id);
+    absolute_error_global = sqrt(absolute_error_global)/(n_global * m_global);
 
     if (comm_cart.rank == 0)
         print_output(iteration_count, &times, error_global, absolute_error_global);
