@@ -183,6 +183,7 @@ int main(int argc, char **argv)
 
     // "u_old" holds the solution after the most recent buffers swap.
     double absolute_error = check_solution(xLeft, yBottom, n+2, m+2, u_old, deltaX, deltaY);
+    absolute_error = sqrt(absolute_error)/(n*m);
 
     if (rank == 0)
         print_output(iteration_count, &times, error, absolute_error);

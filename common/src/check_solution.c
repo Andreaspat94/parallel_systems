@@ -23,5 +23,6 @@ double check_solution(
             error += localError*localError;
         }
     }
+
     return error;
 }
