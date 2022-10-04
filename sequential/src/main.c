@@ -181,8 +181,12 @@ int main(int argc, char **argv)
     free(precalculations.f);
     precalculations.f = NULL;
 
-    // "u_old" holds the solution after the most recent buffers swap.
-    double absolute_error = check_solution(xLeft, yBottom, n+2, m+2, u_old, deltaX, deltaY);
+    // "jacobi_iteration_params.src" holds the solution after the most recent buffers swap.
+    double absolute_error = check_solution(
+        xLeft, yBottom,
+        n+2, m+2,
+        jacobi_iteration_params.src,
+        deltaX, deltaY);
     absolute_error = sqrt(absolute_error)/(n*m);
 
     if (rank == 0)
