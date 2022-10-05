@@ -39,7 +39,7 @@ qsub-profiled: .prepare-qsub
 		../common/scripts/rename_pbs_config.sh ./argo/inputs/temp.txt
 qsub-release: .prepare-qsub
 	@cat ./PBS_template.sh |\
-		./scripts/replace_spread_variables.sh ${np]} |\
+		./scripts/replace_spread_variables.sh ${np} |\
 		sed -e 's/%TARGET%/release/' -e 's/%SIZE%/${size}/' -e 's/%NP%/${np}/' |\
 		tee ./argo/inputs/temp.txt |\
 		qsub -o ./argo/outputs/ -e ./argo/outputs/ |\
