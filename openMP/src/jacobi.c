@@ -198,7 +198,7 @@ int main(int argc, char **argv) {
     double *tmp;
     double update_val, error, thread_loop_error, iteration_error;
     double error_global = HUGE_VAL;
-    double error_global_thread;
+    double rank_total_error;
     int iteration_count = -1;
     int local_iteration_count, tn, tstop;
     int sstop = 0; // shared (among threads) stopping condition
@@ -321,7 +321,9 @@ int main(int argc, char **argv) {
                 }
             } /* for */
 
+            // total error a single process
             error = thread_loop_error;
+
 
 #pragma omp critical
             {
@@ -329,21 +331,27 @@ int main(int argc, char **argv) {
                 local_iteration_count = iteration_count; // ...and keep a private copy of it
             }
 
-            // Calculate the iteration's total error.
-//            double error_iteration_sum;
-//            MPI_Allreduce(&error, &error_iteration_sum, 1, MPI_DOUBLE, MPI_SUM, comm_cart.id);
-// TODO: Replace -->   error_global = sqrt(error_iteration_sum)/(n_global*m_global);
-            error = sqrt(error) / (n_global * m_global);
 
             //iteration_count < max_iteration_count && error_global > max_acceptable_error
-            tstop = (iteration_count > max_iteration_count || error_global <= max_acceptable_error);
+            tstop = (iteration_count > max_iteration_count || error <= max_acceptable_error);
             if (tstop) {
 //                printf("Thread %d is about to stop = 1\n", tn);
                 sstop = 1;
-                error_global_thread = error;
-#pragma omp flush(sstop)
+                rank_total_error = error;
+                #pragma omp flush(sstop)
             }
 
+
+            #pragma omp master
+            {
+                if (sstop)
+                {
+                    // Calculate the iteration's total error.
+                    double error_iteration_sum;
+                    MPI_Allreduce(&rank_total_error, &error_iteration_sum, 1, MPI_DOUBLE, MPI_SUM, comm_cart.id);
+                    error_global = sqrt(error_iteration_sum) / (n_global * m_global);
+                }
+            }
             //if (comm_cart.rank == 0)
             //    printf("===============> %g\n", error_global);
 
@@ -355,7 +363,7 @@ int main(int argc, char **argv) {
             printf("Rank %d...Thread %d, iteration %d, sstop=%d, error=%12.5e\n",
                    comm_cart.rank, tn, local_iteration_count, sstop, error);
         } /* while */
-        printf("Rank %d...Thread %d exited while loop\n", comm_cart.rank, tn);
+//        printf("Rank %d...Thread %d exited while loop\n", comm_cart.rank, tn);
 
     }
 
@@ -375,7 +383,7 @@ int main(int argc, char **argv) {
 
     if (comm_cart.rank == 0)
         //TODO: replace error_global_thread with error_global
-        print_output(iteration_count, &times, error_global_thread, 0.0); // TODO: replace "0.0" with absolute_error
+        print_output(iteration_count, &times, error_global, 0.0); // TODO: replace "0.0" with absolute_error
 
     free(u_old);
     free(u);
