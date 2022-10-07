@@ -65,7 +65,14 @@ int main(int argc, char **argv) {
     ////////////////////////////////////////////////////////////////////////////////////////////////
     /// Initialize MPI and collect MPI_COMM_WORLD-related info.
     int provided;
-    MPI_Init_thread(NULL, NULL, MPI_THREAD_FUNNELED, &provided);
+    int required = MPI_THREAD_FUNNELED;
+    MPI_Init_thread(NULL, NULL, required, &provided);
+    if (provided < required)
+    {
+        printf("Error: MPI does not provide the required thread support\n");
+        MPI_Abort(MPI_COMM_WORLD, 1);
+        exit(1);
+    }
 
     comm_t comm_world = {MPI_COMM_WORLD};
     MPI_Comm_size(comm_world.id, &comm_world.size);
@@ -223,20 +230,25 @@ int main(int argc, char **argv) {
             // NOTE: u(0,*), u(maxXCount-1,*), u(*,0) and u(*,maxYCount-1) are BOUNDARIES and therefore
             // not part of the solution. Take a look at this:
             // http://etutorials.org/Linux+systems/cluster+computing+with+linux/Part+II+Parallel+Programming/Chapter+9+Advanced+Topics+in+MPI+Programming/9.3+Revisiting+Mesh+Exchanges/
+
 #pragma omp master
             {
-                // Receive adjacent lines and columns from neighbours to fill my halo points.
-                MPI_Irecv(&SRC(1, 0), 1, row, ranks.north, 0, comm_cart.id, &recv_requests[0]);
-                MPI_Irecv(&SRC(1, maxYCount - 1), 1, row, ranks.south, 0, comm_cart.id, &recv_requests[1]);
-                MPI_Irecv(&SRC(0, 1), 1, column, ranks.west, 0, comm_cart.id, &recv_requests[2]);
-                MPI_Irecv(&SRC(maxXCount - 1, 1), 1, column, ranks.east, 0, comm_cart.id, &recv_requests[3]);
+                if (sstop)
+                {
+                    // Receive adjacent lines and columns from neighbours to fill my halo points.
+                    MPI_Irecv(&SRC(1, 0), 1, row, ranks.north, 0, comm_cart.id, &recv_requests[0]);
+                    MPI_Irecv(&SRC(1, maxYCount - 1), 1, row, ranks.south, 0, comm_cart.id, &recv_requests[1]);
+                    MPI_Irecv(&SRC(0, 1), 1, column, ranks.west, 0, comm_cart.id, &recv_requests[2]);
+                    MPI_Irecv(&SRC(maxXCount - 1, 1), 1, column, ranks.east, 0, comm_cart.id, &recv_requests[3]);
 
-                // Send my boarder lines and columns to neighbours.
-                MPI_Isend(&SRC(1, 1), 1, row, ranks.north, 0, comm_cart.id, &send_requests[0]);
-                MPI_Isend(&SRC(1, maxYCount - 2), 1, row, ranks.south, 0, comm_cart.id, &send_requests[1]);
-                MPI_Isend(&SRC(1, 1), 1, column, ranks.west, 0, comm_cart.id, &send_requests[2]);
-                MPI_Isend(&SRC(maxXCount - 2, 1), 1, column, ranks.east, 0, comm_cart.id, &send_requests[3]);
-//                printf("Rank %d made MPI calls...\n", comm_cart.rank);
+                    // Send my boarder lines and columns to neighbours.
+                    MPI_Isend(&SRC(1, 1), 1, row, ranks.north, 0, comm_cart.id, &send_requests[0]);
+                    MPI_Isend(&SRC(1, maxYCount - 2), 1, row, ranks.south, 0, comm_cart.id, &send_requests[1]);
+                    MPI_Isend(&SRC(1, 1), 1, column, ranks.west, 0, comm_cart.id, &send_requests[2]);
+                    MPI_Isend(&SRC(maxXCount - 2, 1), 1, column, ranks.east, 0, comm_cart.id, &send_requests[3]);
+//                printf("Rank %d.. Thread %d made MPI calls...\n", comm_cart.rank, tn);
+                }
+
             }
 
 
@@ -251,8 +263,8 @@ int main(int argc, char **argv) {
             thread_loop_error = error;
             // Calculate all white points.
             // Also calculate the green points on the sides that there are no neighbours.
-//            printf("Thread %d ENTERS DOUBLE LOOP!\n", tn);
-#pragma omp for collapse(2) reduction(+ : thread_loop_error)
+
+#pragma omp for collapse(2) reduction(+ : thread_loop_error) nowait
             for (int y = wp_y_begin; y < wp_y_end; y++) {
                 for (int x = wp_x_begin; x < wp_x_end; x++) {
                     update_val = UPDATE_VAL(x, y);
@@ -260,8 +272,6 @@ int main(int argc, char **argv) {
                     thread_loop_error += update_val * update_val;
                 }
             }
-//#pragma omp barrier
-//            printf("Thread %d OUT DOUBLE LOOP!\n", tn);
 
             // Calculate the green points on the sides that there are neighbours.
             // The for loop's logic is the following:
@@ -274,7 +284,16 @@ int main(int argc, char **argv) {
                 int index;
                 MPI_Status status;
 
-//                MPI_Waitany(4, recv_requests, &index, &status);
+                #pragma omp master
+                {
+                    if (sizeof(recv_requests) == 0)
+                    {
+                        printf("Rank %d...Thread %d enters MASTER \n", comm_cart.rank, tn);
+                        MPI_Waitany(4, recv_requests, &index, &status);
+                        printf("Rank %d...Thread %d enters MASTER \n", comm_cart.rank, tn);
+                    }
+
+                }
 
                 if (status.MPI_SOURCE < 0)
                     continue;
@@ -284,7 +303,7 @@ int main(int argc, char **argv) {
                 if ((flag = status.MPI_SOURCE == ranks.north) || status.MPI_SOURCE == ranks.south) {
                     int y = flag ? 1 : maxYCount - 2; // Top or bottom row.
 
-#pragma omp for reduction(+ : thread_loop_error)
+//#pragma omp for reduction(+ : thread_loop_error)
                     for (int x = 1; x < maxXCount - 1; x++) {
                         update_val = UPDATE_VAL(x, y);
                         DST(x, y) = SRC(x, y) - omega * update_val;
@@ -293,15 +312,15 @@ int main(int argc, char **argv) {
                 } else if ((flag = status.MPI_SOURCE == ranks.west) || status.MPI_SOURCE == ranks.east) {
                     int x = flag ? 1 : maxXCount - 2; // Left or right column.
 
-#pragma omp for reduction(+ : thread_loop_error)
+//#pragma omp for reduction(+ : thread_loop_error)
                     for (int y = 1; y < maxYCount - 1; y++) {
                         update_val = UPDATE_VAL(x, y);
                         DST(x, y) = SRC(x, y) - omega * update_val;
                         thread_loop_error += update_val * update_val;
                     }
                 }
-            }
-//#pragma omp barrier
+            } /* for */
+
             error = thread_loop_error;
 
 #pragma omp critical
@@ -333,9 +352,11 @@ int main(int argc, char **argv) {
             src = dst;
             dst = tmp;
 //            MPI_Waitall(4, send_requests, send_statuses); // TODO: do we need this? Maybe not...
-            printf("Thread %d, iteration %d, sstop=%d, error=%12.5e\n", tn, local_iteration_count, sstop, error);
+            printf("Rank %d...Thread %d, iteration %d, sstop=%d, error=%12.5e\n",
+                   comm_cart.rank, tn, local_iteration_count, sstop, error);
         } /* while */
-        printf("Thread %d exited while loop\n", tn);
+        printf("Rank %d...Thread %d exited while loop\n", comm_cart.rank, tn);
+
     }
 
     times_end(&times);
