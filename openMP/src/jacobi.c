@@ -225,7 +225,7 @@ int main(int argc, char **argv)
     int wp_x_begin = ranks.west < 0  ? 1 : 2;
     int wp_x_end   = ranks.east < 0  ? maxXCount-1 : maxXCount-2;
 
-    omp_set_num_threads(2);
+//    omp_set_num_threads(2);
     printf("Rank %d threads %d\n", comm_cart.rank, omp_get_num_threads());
 
     while (iteration_count < max_iteration_count && error_global > max_acceptable_error)

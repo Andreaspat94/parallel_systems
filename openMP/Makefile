@@ -7,6 +7,7 @@
 
 size ?= 840
 np ?= 4
+omp ?= 2
 
 COMMON_SOURCES := $(shell find ../common/src/ -name "*.c")
 THIS_SOURCES := $(shell find ./src/ -name "*.c")
@@ -40,7 +41,7 @@ qsub-profiled: .prepare-qsub
 qsub-release: .prepare-qsub
 	@cat ./PBS_template.sh |\
 		./scripts/replace_spread_variables.sh ${np} |\
-		sed -e 's/%TARGET%/release/' -e 's/%SIZE%/${size}/' -e 's/%NP%/${np}/' |\
+		sed -e 's/%TARGET%/release/' -e 's/%SIZE%/${size}/' -e 's/%NP%/${np}/' -e 's/%OMPTHREADS%/${omp}/' |\
 		tee ./argo/inputs/temp.txt |\
 		qsub -o ./argo/outputs/ -e ./argo/outputs/ |\
 		tee .latest_qsub_job_id &&\
