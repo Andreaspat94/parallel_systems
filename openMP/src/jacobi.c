@@ -226,7 +226,7 @@ int main(int argc, char **argv)
     int wp_x_end   = ranks.east < 0  ? maxXCount-1 : maxXCount-2;
 
 //    omp_set_num_threads(2);
-    printf("Rank %d threads %d\n", comm_cart.rank, omp_get_num_threads());
+//    printf("Rank %d threads %d\n", comm_cart.rank, omp_get_num_threads());
 
     while (iteration_count < max_iteration_count && error_global > max_acceptable_error)
     {
@@ -261,16 +261,20 @@ int main(int argc, char **argv)
 
         // Calculate all white points.
         // Also calculate the green points on the sides that there are no neighbours.
-#pragma omp parallel for collapse(2) reduction(+ : error)
-        for (int y = wp_y_begin; y < wp_y_end; y++)
+#pragma omp parallel
         {
-            for (int x = wp_x_begin; x < wp_x_end; x++)
+#pragma omp for reduction(+ : error)
+            for (int y = wp_y_begin; y < wp_y_end; y++)
             {
-                update_val = UPDATE_VAL(x,y);
-                DST(x,y) = SRC(x,y) - omega*update_val;
-                error += update_val*update_val;
+                for (int x = wp_x_begin; x < wp_x_end; x++)
+                {
+                    update_val = UPDATE_VAL(x,y);
+                    DST(x,y) = SRC(x,y) - omega*update_val;
+                    error += update_val*update_val;
+                }
             }
         }
+
 
         // Calculate the green points on the sides that there are neighbours.
         // The for loop's logic is the following:
@@ -293,22 +297,32 @@ int main(int argc, char **argv)
             if ((flag = status.MPI_SOURCE == ranks.north) || status.MPI_SOURCE == ranks.south)
             {
                 int y = flag ? 1 : maxYCount-2; // Top or bottom row.
-                for (int x = 1; x < maxXCount-1; x++)
+#pragma omp parallel
                 {
-                    update_val = UPDATE_VAL(x,y);
-                    DST(x,y) = SRC(x,y) - omega*update_val;
-                    error += update_val*update_val;
-                }
+#pragma omp for reduction(+ : error)
+                    for (int x = 1; x < maxXCount-1; x++)
+                    {
+                        update_val = UPDATE_VAL(x,y);
+                        DST(x,y) = SRC(x,y) - omega*update_val;
+                        error += update_val*update_val;
+                    }
+                };
+
             }
             else if ((flag = status.MPI_SOURCE == ranks.west) || status.MPI_SOURCE == ranks.east)
             {
                 int x = flag ? 1 : maxXCount-2; // Left or right column.
-                for (int y = 1; y < maxYCount-1; y++)
+#pragma omp parallel
                 {
-                    update_val = UPDATE_VAL(x,y);
-                    DST(x,y) = SRC(x,y) - omega*update_val;
-                    error += update_val*update_val;
-                }
+#pragma omp for reduction(+ : error)
+                    for (int y = 1; y < maxYCount-1; y++)
+                    {
+                        update_val = UPDATE_VAL(x,y);
+                        DST(x,y) = SRC(x,y) - omega*update_val;
+                        error += update_val*update_val;
+                    }
+                };
+
             }
         }
 
@@ -326,8 +340,8 @@ int main(int argc, char **argv)
         tmp = src; src = dst; dst = tmp;
 
         MPI_Waitall(4, send_requests, send_statuses); // TODO: do we need this? Maybe not...
-        printf("Rank %d...Thread %d, error=%12.5e\n",
-               comm_cart.rank, omp_get_thread_num(), error);
+//        printf("Rank %d...Thread %d, error=%12.5e\n",
+//               comm_cart.rank, omp_get_thread_num(), error);
     }
 
 
