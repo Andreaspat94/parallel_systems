@@ -166,6 +166,8 @@ extern "C" float jacobi_gpu(
         d_dst = tmp;
     }
 
+    float elapsedTime = getElapsedtime(t_start);
+
     ////////////////////////////////////////////////////////////////////////////////////////////////
     /// Copy result back to host memory & deallocate device memory.
 
