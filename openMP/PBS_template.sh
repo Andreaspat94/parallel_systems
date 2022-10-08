@@ -10,7 +10,7 @@
 #PBS -l walltime=00:20:00
 
 # How many nodes and tasks per node
-#PBS -l select=%SELECT%:ncpus=8:mpiprocs=%MPIPROCS%:ompthreads=%OMPTHREADS%:mem=14G
+#PBS -l select=%SELECT%:ncpus=8:mpiprocs=%MPIPROCS%:ompthreads=%OMPTHREADS%:mem=15G
 
 #Change Working directory to SUBMIT directory
 cd $PBS_O_WORKDIR
