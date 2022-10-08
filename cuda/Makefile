@@ -22,7 +22,10 @@ LFLAGS = -L${CUDA_INSTALL_PATH}/lib${LIBSUFFIX} -lm -lstdc++ -lcudart
 
 ####################################################################################################
 
+# <shortcut targets
 default: compile
+x: qsub
+# /shortcut targets>
 
 .prepare-compilation:
 	@mkdir -p ./argo/bin
@@ -40,7 +43,7 @@ compile: .prepare-compilation
 	@mkdir -p ./argo/inputs ./argo/outputs &&\
 	cp ../inputs/input_template.txt ./argo/inputs/input_${size}.txt &&\
 	sed -i 's/%SIZE%/${size}/g' ./argo/inputs/input_${size}.txt
-qsub-debug: .prepare-qsub
+qsub: .prepare-qsub
 	@cat ./PBS_template.sh |\
 		sed -e 's/%NGPUS%/${ngpus}/' -e 's/%SIZE%/${size}/' |\
 		tee ./argo/inputs/temp.txt |\
