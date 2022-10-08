@@ -25,6 +25,7 @@ LFLAGS = -L${CUDA_INSTALL_PATH}/lib${LIBSUFFIX} -lm -lstdc++ -lcudart
 # <shortcut targets
 default: compile
 x: qsub
+s: show-latest-qsub-info
 # /shortcut targets>
 
 .prepare-compilation:
@@ -50,6 +51,9 @@ qsub: .prepare-qsub
 		qsub -o ./argo/outputs/ -e ./argo/outputs/ |\
 		tee .latest_qsub_job_id &&\
 		../common/scripts/rename_pbs_config.sh ./argo/inputs/temp.txt
+
+show-latest-qsub-info:
+	@../common/scripts/show_qsub_job_info.sh || true
 
 clean-bin:
 	rm -f ./argo/bin/*
