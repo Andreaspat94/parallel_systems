@@ -168,11 +168,11 @@ int main(int argc, char **argv)
     double xLeft   = -1.0, xRight = 1.0;
     double yBottom = -1.0,    yUp = 1.0;
 
-    double xStart = xLeft;
-    double yStart = yBottom;
-
     double deltaX = (xRight-xLeft)/(n_global-1);
     double deltaY = (yUp-yBottom)/(m_global-1);
+
+    double xStart = xLeft + coords[0]*n*deltaX;
+    double yStart = yBottom + coords[1]*m*deltaY;
 
     ////////////////////////////////////////////////////////////////////////////////////////////////
     /// Make any jacobi-iteration precalculations.
@@ -193,11 +193,11 @@ int main(int argc, char **argv)
 
     for (int x = 0; x < n; x++)
     {
-        fX[x+1] = xStart + (coords[0]*n + x)*deltaX;
+        fX[x+1] = xStart + x*deltaX;
     }
     for (int y = 0; y < m; y++)
     {
-        fY[y+1] = yStart + (coords[1]*m + y)*deltaY;
+        fY[y+1] = yStart + y*deltaY;
     }
 
     ////////////////////////////////////////////////////////////////////////////////////////////////
@@ -226,7 +226,6 @@ int main(int argc, char **argv)
     int wp_x_end   = ranks.east < 0  ? maxXCount-1 : maxXCount-2;
 
 //    omp_set_num_threads(2);
-//    printf("Rank %d threads %d\n", comm_cart.rank, omp_get_num_threads());
 
     while (iteration_count < max_iteration_count && error_global > max_acceptable_error)
     {
@@ -353,22 +352,20 @@ int main(int argc, char **argv)
     MPI_Type_free(&row);
     MPI_Type_free(&column);
 
-    // TODO: also parallelize check_solution?
-    /**
-     * Re-activating this function gave me the following error: "mpi:17290 terminated with signal 11".
-     * This was solved by moving "free(u)" function below.
-     */
-    // u_old holds the solution after the most recent buffers swap
-//    double absolute_error = check_solution(xLeft, yBottom,
-//                                          n_global+2, m_global+2,
-//                                          u_old,
-//                                          deltaX, deltaY);
+    // "src" holds the solution after the most recent buffers swap
+    double absolute_error = check_solution(
+            xStart, yStart,
+            maxXCount, maxYCount,
+            src,
+            deltaX, deltaY);
+    double absolute_error_global;
+    MPI_Reduce(&absolute_error, &absolute_error_global, 1, MPI_DOUBLE, MPI_SUM, 0, comm_cart.id);
+    absolute_error_global = sqrt(absolute_error_global)/(n_global * m_global);
 
     if (comm_cart.rank == 0)
-        print_output(iteration_count, &times, error_global, 0.0); // TODO: replace "0.0" with absolute_error
+        print_output(iteration_count, &times, error_global, absolute_error_global);
 
     free(u_old);
-    free(u);
     MPI_Comm_free(&comm_cart.id);
     MPI_Finalize();
 
