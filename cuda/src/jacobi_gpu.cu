@@ -1,5 +1,6 @@
 #include "jacobi_gpu.h"
 #include "timestamp.h"
+#include <stdio.h>
 #include <math.h>
 #include <cuda.h>
 

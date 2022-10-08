@@ -29,9 +29,11 @@ default: compile
 compile: .prepare-compilation
 	${CC} ${FLAGS} ${IFLAGS} -c ./src/main.cpp \
 		-o ./argo/bin/main.o
+	${CC} ${FLAGS} ${IFLAGS} -c ../common/src/check_solution.c \
+		-o ./argo/bin/check_solution.o
 	${NVCC} ${NVFLAGS} ${IFLAGS} -DUNIX -c ./src/jacobi_gpu.cu \
 		-o ./argo/bin/jacobi_gpu.o
-	${CC} ${LFLAGS} ./argo/bin/main.o ./argo/bin/jacobi_gpu.o \
+	${CC} ${LFLAGS} ./argo/bin/main.o ./argo/bin/check_solution.o ./argo/bin/jacobi_gpu.o \
 		-o ./argo/bin/jacobi_gpu.x
 
 .prepare-qsub:
