@@ -33,7 +33,7 @@ compile-all: compile-profiled compile-release
 qsub-profiled: .prepare-qsub
 	@cat ./PBS_template.sh |\
 		./scripts/replace_spread_variables.sh ${np} |\
-		sed -e 's/%TARGET%/profiled/' -e 's/%SIZE%/${size}/' -e 's/%NP%/${np}/' |\
+		sed -e 's/%TARGET%/profiled/' -e 's/%SIZE%/${size}/' -e 's/%NP%/${np}/' -e 's/%OMPTHREADS%/${omp}/' |\
 		tee ./argo/inputs/temp.txt |\
 		qsub -o ./argo/outputs/ -e ./argo/outputs/ |\
 		tee .latest_qsub_job_id &&\
