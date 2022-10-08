@@ -11,7 +11,7 @@ report_output_file="./argo/reports/hybrid_mpi_performance_`date '+%Y_%m_%d_%H_%M
 
 # Add CSV header row.
 echo `$common_scripts_path/csv_create_header_row.sh`",out_np" > "$report_output_file"
-
+omp=2
 for size in 840 1680 3360 6270 13440 26880; do
 for np in 1 4 9 16 25 36 49 64 80; do
   if [[ $size == 13440 ]]; then
@@ -32,8 +32,8 @@ for np in 1 4 9 16 25 36 49 64 80; do
   for i in `seq 1 $repeats`; do
 
     # Create new qsub job.
-    print_green "make --no-print-directory x size=$size np=$np"
-    make --no-print-directory x "size=$size" "np=$np"
+    print_green "make --no-print-directory x size=$size np=$np omp=$omp"
+    make --no-print-directory x "size=$size" "np=$np" "omp=$omp"
     job_id=`cat .latest_qsub_job_id`
 
     # Wait for the qsub job to finish.
@@ -42,7 +42,7 @@ for np in 1 4 9 16 25 36 49 64 80; do
 
     # Add CSV data row.
     job_output_file="./argo/outputs/$job_id.OU"
-    csv_data_row=`$common_scripts_path/csv_create_data_row.sh < "$job_output_file"`",$np"
+    csv_data_row=`$common_scripts_path/csv_create_data_row.sh < "$job_output_file"`",$np,"omp
     print_green "$csv_data_row"
     echo "$csv_data_row" >> "$report_output_file"
 
