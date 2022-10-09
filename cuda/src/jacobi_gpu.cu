@@ -14,16 +14,21 @@ __global__ void jacobi_iteration_gpu(
     int maxXCount, int maxYCount,
     double xStart, double yStart,
     double deltaX, double deltaY,
-    double alpha, double omega)
+    double alpha, double omega,
+    double *d_errors)
 {
+    int by = blockIdx.y;
+    int bx = blockIdx.x;
+    int bi = by * gridDim.x + bx;
+
+    int ty = threadIdx.y;
+    int tx = threadIdx.x;
+    int ti = ty * blockDim.x + tx;
+
     int y = blockIdx.y * blockDim.y + threadIdx.y + 1;
     int x = blockIdx.x * blockDim.x + threadIdx.x + 1;
     int i = y * maxXCount + x;
-
     bool isValidIndex = y < maxYCount-1 && x < maxXCount-1;
-    int ty = threadIdx.y;
-    int tx = threadIdx.x;
-    int ti = threadIdx.y * blockDim.x + threadIdx.x;
 
     double thisCell = d_src[i];
 
@@ -32,6 +37,7 @@ __global__ void jacobi_iteration_gpu(
     // Each thread will do one global/L2 memory access (except threads with out-of-bounds indices).
     if (isValidIndex)
         cache[ti] = thisCell;
+
     __syncthreads();
 
     double error = 0.0;
@@ -68,10 +74,43 @@ __global__ void jacobi_iteration_gpu(
         error = updateVal*updateVal;
     }
 
-    // TODO: sum_reduce somehow all threads errors.
-    // Sum-reduce errors across all threads of current block.
+    // Finally, do an iteration of sum-reduction since we already have the per-thread errors easily
+    // accessible. The rest of the reduction will be done by the "sum_reduction" kernel.
+
     // Cache is no longer needed for storing matrix values. So we can use it for the sum reduction.
     cache[ti] = error;
+
+    __syncthreads();
+
+    for (unsigned int s = 1; s < THREADS_PER_BLOCK; s <<= 1) {
+        if (ti % (s << 1) == 0)
+            cache[ti] += cache[ti + s];
+        __syncthreads();
+    }
+
+    if (ti == 0)
+        d_errors[bi] = cache[0];
+}
+
+__global__ void sum_reduction(double *d_errors)
+{
+    int bi = blockIdx.x;
+    int ti = threadIdx.x;
+
+    __shared__ double cache[THREADS_PER_BLOCK];
+
+    cache[ti] = d_errors[bi * blockDim.x + ti];
+
+    __syncthreads();
+
+    for (unsigned int s = 1; s < THREADS_PER_BLOCK; s <<= 1) {
+        if (ti % (s << 1) == 0)
+            cache[ti] += cache[ti + s];
+        __syncthreads();
+    }
+
+    if (ti == 0)
+        d_errors[bi] = cache[0];
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -82,8 +121,8 @@ struct pair_t {
     int second;
 };
 
-extern "C" pair_t findMostCloseToSqrtDivisor(int number) {
-
+extern "C" pair_t findMostCloseToSqrtDivisor(int number)
+{
     pair_t divisors = {1, number};
 
     for(int i = ceil(sqrt(number)); i > 0; i--)
@@ -109,11 +148,22 @@ extern "C" float jacobi_gpu(
     int *out_iteration_count, double *out_error, float *out_elapsedTime)
 {
     double *d_src, *d_dst;
-    cudaError_t err;
+    double *d_tb_errors; // thread-block errors.
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+    ///
+
+    pair_t blockSideSizes = findMostCloseToSqrtDivisor(THREADS_PER_BLOCK);
+    dim3 blockSize(blockSideSizes.first, blockSideSizes.second);
+
+    int blocksCount = ceil(((maxXCount-2)*(maxYCount-2)) / THREADS_PER_BLOCK);
+    pair_t gridSideSizes = findMostCloseToSqrtDivisor(blocksCount);
+    dim3 gridSize(gridSideSizes.first, blockSideSizes.second);
 
     ////////////////////////////////////////////////////////////////////////////////////////////////
     /// Allocate device memory & fill it with host memory data.
 
+    cudaError_t err;
     size_t bytesCnt = maxXCount * maxYCount * sizeof(double);
 
     // Allocate device memory.
@@ -123,6 +173,11 @@ extern "C" float jacobi_gpu(
         return err;
     }
     err = cudaMalloc((void **) &d_dst, bytesCnt);
+    if (err != cudaSuccess) {
+        fprintf(stderr, "GPUassert: %s\n", err);
+        return err;
+    }
+    err = cudaMalloc((void **) &d_tb_errors, blocksCount);
     if (err != cudaSuccess) {
         fprintf(stderr, "GPUassert: %s\n", err);
         return err;
@@ -146,22 +201,23 @@ extern "C" float jacobi_gpu(
     timestamp t_start;
     t_start = getTimestamp();
 
-    pair_t blockSideSizes = findMostCloseToSqrtDivisor(THREADS_PER_BLOCK);
-    dim3 blockSize(blockSideSizes.first, blockSideSizes.second);
-
-    int blocksCount = ((maxXCount-2)*(maxYCount-2) + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
-    pair_t gridSideSizes = findMostCloseToSqrtDivisor(blocksCount);
-    dim3 gridSize(gridSideSizes.first, blockSideSizes.second);
-
     double error = HUGE_VAL;
     int iteration_count = -1;
 
     while (++iteration_count < max_iteration_count && err > max_acceptable_error)
     {
         jacobi_iteration_gpu<<<gridSize, blockSize>>>(
-            d_src, d_dst, maxXCount, maxYCount, xStart, yStart, deltaX, deltaY, alpha, omega);
+            d_src, d_dst,
+            maxXCount, maxYCount,
+            xStart, yStart,
+            deltaX, deltaY,
+            alpha, omega,
+            d_tb_errors);
 
         // TODO: calculate the total iteration's error: sqrt(error)/((maxXCount-2)*(maxYCount-2));
+//        for (int b = blocksCount; ; b = ceil(b/THREADS_PER_BLOCK)) {
+//            sum_reduction<<<b,THREADS_PER_BLOCK>>>(d_tb_errors);
+//        }
 
         // Swap buffers.
         double *tmp = d_src;
@@ -187,6 +243,11 @@ extern "C" float jacobi_gpu(
         return err;
     }
     err = cudaFree(d_src);
+    if (err != cudaSuccess) {
+        fprintf(stderr, "GPUassert: %s\n", err);
+        return err;
+    }
+    err = cudaFree(d_tb_errors);
     if (err != cudaSuccess) {
         fprintf(stderr, "GPUassert: %s\n", err);
         return err;
