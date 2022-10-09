@@ -35,7 +35,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cmath>
-#include "check_solution.h"
+#include "common/check_solution.h"
 #include "jacobi_gpu.h"
 
 int main(int argc, char **argv)
