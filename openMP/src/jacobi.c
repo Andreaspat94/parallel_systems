@@ -136,9 +136,6 @@ int main(int argc, char **argv)
     MPI_Cart_shift(comm_cart.id, 0, 1, &ranks.west,  &ranks.east);
     MPI_Cart_shift(comm_cart.id, 1, 1, &ranks.north, &ranks.south);
 
-//    printf("comm size: %d\n", comm_cart.size);
-//    printf("rank= %d coords= %d %d, neighbors(north= %d, south= %d, west= %d, east= %d)\n",
-//           comm_cart.rank, coords[0], coords[1], ranks.north, ranks.south, ranks.west, ranks.east);
     ////////////////////////////////////////////////////////////////////////////////////////////////
     /// Create the grids "u" and "u_old" and relevant MPI datatypes for managing their rows and
     /// columns.
@@ -224,8 +221,6 @@ int main(int argc, char **argv)
     int wp_y_end   = ranks.south < 0 ? maxYCount-1 : maxYCount-2;
     int wp_x_begin = ranks.west < 0  ? 1 : 2;
     int wp_x_end   = ranks.east < 0  ? maxXCount-1 : maxXCount-2;
-
-//    omp_set_num_threads(2);
 
     while (iteration_count < max_iteration_count && error_global > max_acceptable_error)
     {
@@ -338,9 +333,7 @@ int main(int argc, char **argv)
         // Swap the buffers
         tmp = src; src = dst; dst = tmp;
 
-        MPI_Waitall(4, send_requests, send_statuses); // TODO: do we need this? Maybe not...
-//        printf("Rank %d...Thread %d, error=%12.5e\n",
-//               comm_cart.rank, omp_get_thread_num(), error);
+        MPI_Waitall(4, send_requests, send_statuses);
     }
 
 
