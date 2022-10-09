@@ -223,8 +223,8 @@ extern "C" float jacobi_gpu(
 
         // Do a sum-reduce across all per-blocks errors.
         // TODO: For sure there is some error in the logic of either the following loop, or the
-        //       "sum_reduction" function or both. But without a running environment to test, it is
-        //       not so easy.
+        //       "sum_reduction" function or both. But without a environment to run our logic, it is
+        //       not possible to debug and fix.
         int errBlocksCount = blocksCount;
         for (int err_stride = 1; ; err_stride *= THREADS_PER_BLOCK) {
             int maxThreadIdx = errBlocksCount;
