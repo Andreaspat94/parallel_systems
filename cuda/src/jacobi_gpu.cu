@@ -234,7 +234,7 @@ extern "C" float jacobi_gpu(
                 break;
         }
 
-        err = sqrt(d_tb_errors[0]) / ((maxXCount-2)*(maxYCount-2));
+        error = sqrt(d_tb_errors[0]) / ((maxXCount-2)*(maxYCount-2));
 
         // Swap buffers.
         double *tmp = d_src;
