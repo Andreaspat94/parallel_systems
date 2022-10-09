@@ -310,7 +310,7 @@ int main(int argc, char **argv)
         // Swap the buffers
         tmp = src; src = dst; dst = tmp;
 
-        MPI_Waitall(4, send_requests, send_statuses); // TODO: do we need this? Maybe not...
+        MPI_Waitall(4, send_requests, send_statuses);
     }
 
     times_end(&times);
