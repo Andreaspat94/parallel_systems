@@ -25,50 +25,53 @@ __global__ void jacobi_iteration_gpu(
     int tx = threadIdx.x;
     int ti = threadIdx.y * blockDim.x + threadIdx.x;
 
-    __shared__ double s_src[THREADS_PER_BLOCK]; // L1 cache.
-
-    // Each thread will do one global/L2 memory access.
     double thisCell = d_src[i];
-    if (isValidIndex)
-        s_src[ti] = thisCell;
 
+    __shared__ double cache[THREADS_PER_BLOCK]; // L1 cache.
+
+    // Each thread will do one global/L2 memory access (except threads with out-of-bounds indices).
+    if (isValidIndex)
+        cache[ti] = thisCell;
     __syncthreads();
 
-    if (!isValidIndex)
-        return;
+    double error = 0.0;
 
-    // Corner cells will do two global/L2 reads and two L1 reads.
-    // The rest border cells will do one global/L2 reads and three L1 reads.
-    // All non-border cells will do four L1 reads.
-    double leftCell  = tx == 0            ? d_src[i-1]         : s_src[ti-1];
-    double rightCell = tx == blockDim.x-1 ? d_src[i+1]         : s_src[ti+1];
-    double upperCell = ty == 0            ? d_src[i-maxXCount] : s_src[ti-blockDim.x];
-    double belowCell = ty == blockDim.y-1 ? d_src[i+maxXCount] : s_src[ti+blockDim.x];
+    if (isValidIndex) {
+        // Corner cells will do two global/L2 reads and two L1 reads.
+        // The rest border cells will do one global/L2 reads and three L1 reads.
+        // All non-border cells will do four L1 reads.
+        double leftCell  = tx == 0            ? d_src[i-1]         : cache[ti-1];
+        double rightCell = tx == blockDim.x-1 ? d_src[i+1]         : cache[ti+1];
+        double upperCell = ty == 0            ? d_src[i-maxXCount] : cache[ti-blockDim.x];
+        double belowCell = ty == blockDim.y-1 ? d_src[i+maxXCount] : cache[ti+blockDim.x];
 
-    // Coefficients
-    // TODO: Is it better to always recalculate them OR precalculate them in global memory and then
-    //       always accessing global memory or L2 cache?
-    double cx = 1.0/(deltaX*deltaX);
-    double cy = 1.0/(deltaY*deltaY);
-    double cc = -2.0*cx-2.0*cy-alpha;
+        // Coefficients
+        // TODO: Is it better to always recalculate them OR precalculate them in global memory and
+        //       then always accessing global memory or L2 cache?
+        double cx = 1.0/(deltaX*deltaX);
+        double cy = 1.0/(deltaY*deltaY);
+        double cc = -2.0*cx-2.0*cy-alpha;
 
-    // TODO: If we precalculate any of these values, then each thread will require at least one
-    //       global/L2 read. Therefore, it's probably better to simply always recalculate them (?).
-    double fY = yStart + y*deltaY;
-    double fX = xStart + x*deltaX;
-    double f = -alpha*(1.0-fX*fX)*(1.0-fY*fY) - 2.0*(1.0-fX*fX) - 2.0*(1.0-fY*fY);
+        // TODO: If we precalculate any of these values, then each thread will require at least one
+        //       global/L2 read. Therefore, it's probably better to simply always recalculate them (?).
+        double fY = yStart + y*deltaY;
+        double fX = xStart + x*deltaX;
+        double f = -alpha*(1.0-fX*fX)*(1.0-fY*fY) - 2.0*(1.0-fX*fX) - 2.0*(1.0-fY*fY);
 
-    double updateVal = (
-        (leftCell + rightCell) * cx +
-        (upperCell + belowCell) * cy +
-        thisCell * cc -f
-    ) / cc;
+        double updateVal = (
+            (leftCell + rightCell) * cx +
+                (upperCell + belowCell) * cy +
+                thisCell * cc -f
+        ) / cc;
 
-    d_dst[i] = thisCell - omega*updateVal;
+        d_dst[i] = thisCell - omega*updateVal;
+        error = updateVal*updateVal;
+    }
 
     // TODO: sum_reduce somehow all threads errors.
-//    double error = 0.0;
-//    error += updateVal*updateVal;
+    // Sum-reduce errors across all threads of current block.
+    // Cache is no longer needed for storing matrix values. So we can use it for the sum reduction.
+    cache[ti] = error;
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
