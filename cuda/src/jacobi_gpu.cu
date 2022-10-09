@@ -6,6 +6,11 @@
 
 #define THREADS_PER_BLOCK 256 // Also check with other values, e.g. 512.
 
+// TODO: For greatly improving the per-thread error sum-reduction process inside each block, we can
+//       follow this optimization guide (1st link is slides, 2nd link is video explanation):
+//       - https://developer.download.nvidia.com/assets/cuda/files/reduction.pdf
+//       - https://www.youtube.com/watch?v=bpbit8SPMxU
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -75,7 +80,8 @@ __global__ void jacobi_iteration_gpu(
     }
 
     // Finally, do an iteration of sum-reduction since we already have the per-thread errors easily
-    // accessible. The rest of the reduction will be done by the "sum_reduction" kernel.
+    // accessible. The rest of the reduction will be done by repeated executions of the
+    // "sum_reduction" kernel.
 
     // Cache is no longer needed for storing matrix values. So we can use it for the sum reduction.
     cache[ti] = error;
@@ -92,25 +98,26 @@ __global__ void jacobi_iteration_gpu(
         d_errors[bi] = cache[0];
 }
 
-__global__ void sum_reduction(double *d_errors)
+__global__ void sum_reduction(double *d_errors, int stride, int maxThreadIdx)
 {
-    int bi = blockIdx.x;
-    int ti = threadIdx.x;
+    int bx = blockIdx.x;
+    int tx = threadIdx.x;
+    int ti = threadIdx.y * blockDim.x + tx;
 
     __shared__ double cache[THREADS_PER_BLOCK];
 
-    cache[ti] = d_errors[bi * blockDim.x + ti];
+    cache[tx] = d_errors[ti];
 
     __syncthreads();
 
     for (unsigned int s = 1; s < THREADS_PER_BLOCK; s <<= 1) {
-        if (ti % (s << 1) == 0)
-            cache[ti] += cache[ti + s];
+        if (tx % (s << 1) == 0)
+            cache[tx] += cache[tx + s];
         __syncthreads();
     }
 
-    if (ti == 0)
-        d_errors[bi] = cache[0];
+    if (tx == 0)
+        d_errors[bx] = cache[0];
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -177,7 +184,7 @@ extern "C" float jacobi_gpu(
         fprintf(stderr, "GPUassert: %s\n", err);
         return err;
     }
-    err = cudaMalloc((void **) &d_tb_errors, blocksCount);
+    err = cudaMalloc((void **) &d_tb_errors, blocksCount * sizeof(double));
     if (err != cudaSuccess) {
         fprintf(stderr, "GPUassert: %s\n", err);
         return err;
@@ -214,10 +221,20 @@ extern "C" float jacobi_gpu(
             alpha, omega,
             d_tb_errors);
 
-        // TODO: calculate the total iteration's error: sqrt(error)/((maxXCount-2)*(maxYCount-2));
-//        for (int b = blocksCount; ; b = ceil(b/THREADS_PER_BLOCK)) {
-//            sum_reduction<<<b,THREADS_PER_BLOCK>>>(d_tb_errors);
-//        }
+        // Do a sum-reduce across all per-blocks errors.
+        // TODO: For sure there is some error in the logic of either the following loop, or the
+        //       "sum_reduction" function or both. But without a running environment to test, it is
+        //       not so easy.
+        int errBlocksCount = blocksCount;
+        for (int err_stride = 1; ; err_stride *= THREADS_PER_BLOCK) {
+            int maxThreadIdx = errBlocksCount;
+            errBlocksCount = ceil(errBlocksCount / THREADS_PER_BLOCK);
+            sum_reduction<<<errBlocksCount, THREADS_PER_BLOCK>>>(d_tb_errors, err_stride, maxThreadIdx);
+            if (errBlocksCount == 1)
+                break;
+        }
+
+        err = sqrt(d_tb_errors[0]) / ((maxXCount-2)*(maxYCount-2));
 
         // Swap buffers.
         double *tmp = d_src;
